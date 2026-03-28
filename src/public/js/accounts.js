@@ -28,7 +28,7 @@ async function fetchAccounts(updateSelect = false) {
     const data = await response.json();
     // 如果http状态码为401, 则跳转到登录页面
     if (response.status === 401) {
-        window.location.href = '/login';
+        window.location.href = './login';
         return;
     }
     

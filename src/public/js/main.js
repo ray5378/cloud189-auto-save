@@ -20,12 +20,13 @@ function debounce(func, wait) {
 document.addEventListener('DOMContentLoaded', () => {
      // 初始化macos样式
     const appTitle = document.getElementById('appTitle');
-    if (appTitle) {
+        if (appTitle) {
         if(localStorage.getItem('_currentTheme') === 'macos') {
             // 插入新的css
             const newCss = document.createElement('link');
             newCss.rel = 'stylesheet';
-            newCss.href = '/css/macos.css';
+            newCss.href = 'css/macos.css';
+            newCss.dataset.macosTheme = 'true';
             document.head.appendChild(newCss);
         }
         appTitle.addEventListener('click', (e) => {
@@ -34,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
            if(currentTheme === 'macos') {
             localStorage.setItem('_currentTheme', '')
             // 移除macos样式
-            const macosCss = document.querySelector('link[href="/css/macos.css"]');
+            const macosCss = document.querySelector('link[data-macos-theme="true"]');
             if (macosCss) {
                 document.head.removeChild(macosCss);
             }
@@ -43,7 +44,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // 插入新的css
            const newCss = document.createElement('link');
            newCss.rel = 'stylesheet';
-           newCss.href = '/css/macos.css';
+           newCss.href = 'css/macos.css';
+           newCss.dataset.macosTheme = 'true';
            document.head.appendChild(newCss);
            }
         });

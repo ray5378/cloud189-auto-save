@@ -3,6 +3,8 @@ const { In } = require('typeorm');
 const { StrmService } = require('./strm');
 const { logTaskEvent } = require('../utils/logUtils');
 const { Cloud189Service } = require('./cloud189');
+const ConfigService = require('./ConfigService');
+const { StreamProxyService } = require('./streamProxy');
 
 class StrmConfigService {
     constructor(strmConfigRepo, accountRepo, subscriptionRepo, subscriptionResourceRepo) {
@@ -10,6 +12,7 @@ class StrmConfigService {
         this.accountRepo = accountRepo;
         this.subscriptionRepo = subscriptionRepo;
         this.subscriptionResourceRepo = subscriptionResourceRepo;
+        this.streamProxyService = new StreamProxyService(accountRepo);
     }
 
     async listConfigs() {
@@ -153,6 +156,10 @@ class StrmConfigService {
 
         const cloud189 = Cloud189Service.getInstance(account);
         const service = new StrmService();
+        const streamBaseUrl = this.streamProxyService.getBaseUrl();
+        if (!ConfigService.getConfigValue('system.baseUrl')) {
+            logTaskEvent(`订阅STRM配置[${config.name}]未配置系统基础地址，当前将使用 ${streamBaseUrl} 生成代理链接`);
+        }
         let processedCount = 0;
         let processedFiles = 0;
         const runStartedAt = new Date();
@@ -175,7 +182,13 @@ class StrmConfigService {
                 await service.generateCustom(
                     targetRoot,
                     files,
-                    async (file) => await cloud189.getDownloadLink(file.id, resource.shareId),
+                    async (file) => this.streamProxyService.buildStreamUrl({
+                        type: 'subscription',
+                        accountId: account.id,
+                        fileId: file.id,
+                        shareId: resource.shareId,
+                        fileName: file.name
+                    }),
                     config.overwriteExisting,
                     false
                 );

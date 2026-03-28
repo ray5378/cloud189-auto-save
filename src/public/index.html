@@ -7,56 +7,64 @@
     <meta name="theme-color" content="#ffffff">
     <meta name="color-scheme" content="light dark">
 
-    <link rel="icon" type="image/png" href="/favicon/favicon-96x96.png" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg" />
-    <link rel="shortcut icon" href="/favicon/favicon.ico" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="favicon/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="favicon/favicon.svg" />
+    <link rel="shortcut icon" href="favicon/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="自动转存" />
-    <link rel="manifest" href="/favicon/site.webmanifest" />
+    <link rel="manifest" href="favicon/site.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="/css/base.css">
-    <link rel="stylesheet" href="/css/folder-tree.css">
-    <link rel="stylesheet" href="/css/modal.css">
-    <link rel="stylesheet" href="/css/card-view.css">
-    <link rel="stylesheet" href="/css/components.css">
-    <link rel="stylesheet" href="/css/table-view.css">
-    <link rel="stylesheet" href="/css/table.css">
-    <link rel="stylesheet" href="/css/tabs.css">
-    <link rel="stylesheet" href="/css/theme.css">
-    <link rel="stylesheet" href="/css/logs.css">
-    <link rel="stylesheet" href="/css/loading.css">
-    <link rel="stylesheet" href="/css/message.css">
-    <link rel="stylesheet" href="/css/floating-btn.css">
-    <link rel="stylesheet" href="/css/cloudsaver.css">
-    <link rel="stylesheet" href="/css/chat.css">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/folder-tree.css">
+    <link rel="stylesheet" href="css/modal.css">
+    <link rel="stylesheet" href="css/card-view.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/table-view.css">
+    <link rel="stylesheet" href="css/table.css">
+    <link rel="stylesheet" href="css/tabs.css">
+    <link rel="stylesheet" href="css/theme.css">
+    <link rel="stylesheet" href="css/logs.css">
+    <link rel="stylesheet" href="css/loading.css">
+    <link rel="stylesheet" href="css/message.css">
+    <link rel="stylesheet" href="css/floating-btn.css">
+    <link rel="stylesheet" href="css/cloudsaver.css">
+    <link rel="stylesheet" href="css/chat.css">
 </head>
 <body>
     <div class="header">
-        <h1 id="appTitle">天翼自动转存</h1>
-        <div class="header-meta">
-            <a href="https://github.com/1307super/cloud189-auto-save" target="_blank" title="GitHub">
-                <span class="github-icon"></span>
-                <span id="version"></span>
-            </a>
+        <div class="header-title-group">
+            <div class="header-overline">Cloud189 Auto Save Console</div>
+            <h1 id="appTitle">天翼自动转存</h1>
+            <p class="header-subtitle">Material Design 3 风格控制台，统一账号、任务、订阅、STRM 与系统配置管理。</p>
         </div>
-    </div>
-    
-    <div class="theme-switch">
-        <button id="themeToggle" class="theme-toggle-btn">
-            <span class="theme-icon"></span>
-        </button>
-        <div class="theme-dropdown" id="themeDropdown">
-            <div class="theme-option" data-theme="light">
-                <span class="theme-icon"></span>
-                默认
+        <div class="header-actions">
+            <div class="header-meta">
+                <a href="https://github.com/1307super/cloud189-auto-save" target="_blank" title="GitHub">
+                    <span class="github-icon"></span>
+                    <span id="version"></span>
+                </a>
             </div>
-            <div class="theme-option" data-theme="dark">
-                <span class="theme-icon"></span>
-                暗黑
-            </div>
-            <div class="theme-option" data-theme="auto">
-                <span class="theme-icon"></span>
-                自动
+            <div class="theme-switch">
+                <button id="themeToggle" class="theme-toggle-btn">
+                    <span class="theme-icon"></span>
+                </button>
+                <div class="theme-dropdown" id="themeDropdown">
+                    <div class="theme-option" data-theme="light">
+                        <span class="theme-icon"></span>
+                        默认
+                    </div>
+                    <div class="theme-option" data-theme="dark">
+                        <span class="theme-icon"></span>
+                        暗黑
+                    </div>
+                    <div class="theme-option" data-theme="auto">
+                        <span class="theme-icon"></span>
+                        自动
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -202,7 +210,7 @@
                             <div class="search-input">
                                 <input type="text" id="taskSearch" placeholder="搜索资源名称/账号/备注">
                                 <button type="button" onclick="fetchTasks()" class="btn-icon" title="刷新任务列表">
-                                    <img src="/icons/refresh.svg" alt="刷新" class="refresh-icon">
+                                    <img src="icons/refresh.svg" alt="刷新" class="refresh-icon">
                                 </button>
                             </div>
                         </div>
@@ -625,6 +633,12 @@
                     </div>
                 </div>
 
+                <div class="form-group">
+                    <label for="systemBaseUrl">系统访问地址</label>
+                    <input type="text" id="systemBaseUrl" placeholder="例如: http://192.168.1.10:3000">
+                    <small class="form-text">用于生成系统中转型 STRM 链接，请填写播放器和媒体服务器实际能够访问到的地址。</small>
+                </div>
+
                 <button type="submit">保存设置</button>
             </form>
         </div>
@@ -696,6 +710,11 @@
                                 <input type="checkbox" id="enableStrm">
                                 启用 STRM 生成
                             </label>
+                            <label>
+                                <input type="checkbox" id="useStreamProxyForTaskStrm">
+                                普通任务 STRM 使用系统中转
+                            </label>
+                            <small class="form-text">开启后，普通任务生成的 .strm 会写入系统地址，由服务端实时换取最新直链并 302 跳转，适合避免临时直链过期。</small>
                             <div class="help-text-container">
                                 <button type="button" class="toggle-help-text" onclick="toggleHelpText(this)">显示帮助</button>
                                 <small class="form-text">例如: 
@@ -778,25 +797,26 @@
     </div>
 
 <!-- 在 body 结束标签前添加以下脚本引用 -->
-<script src="/js/folderSelector.js"></script>
-<script src="/js/theme.js"></script>
-<script src="/js/tabs.js"></script>
-<script src="/js/accounts.js"></script>
-<script src="/js/tasks.js"></script>
-<script src="/js/subscriptions.js"></script>
-<script src="/js/strmConfigs.js"></script>
-<script src="/js/edit-task.js"></script>
-<script src="/js/main.js"></script>
-<script src="/js/settings.js"></script>
-<script src="/js/regexPresets.js"></script>
-<script src="/js/media.js"></script>
-<script src="/js/logs.js"></script>
-<script src="/js/loading.js"></script>
-<script src="/js/message.js"></script>
-<script src="/js/cloudsaver.js"></script>
-<script src="/js/chat.js"></script>
-<script src="/js/strm.js"></script>
-<script src="/js/customPush.js"></script> 
+<script src="js/basePath.js"></script>
+<script src="js/folderSelector.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/tabs.js"></script>
+<script src="js/accounts.js"></script>
+<script src="js/tasks.js"></script>
+<script src="js/subscriptions.js"></script>
+<script src="js/strmConfigs.js"></script>
+<script src="js/edit-task.js"></script>
+<script src="js/main.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/regexPresets.js"></script>
+<script src="js/media.js"></script>
+<script src="js/logs.js"></script>
+<script src="js/loading.js"></script>
+<script src="js/message.js"></script>
+<script src="js/cloudsaver.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/strm.js"></script>
+<script src="js/customPush.js"></script> 
 
 
 </body>
@@ -1162,23 +1182,23 @@
 <div class="floating-btn-group">
     <div class="floating-btns-container collapsed" id="floatingBtnsContainer">
         <div class="floating-btn" onclick="showCloudsaver()" title="CloudSaver">
-            <img src="/icons/cloudsaver.svg" alt="CloudSaver" style="filter:none">
+            <img src="icons/cloudsaver.svg" alt="CloudSaver" style="filter:none">
         </div>
         <div class="floating-btn" onclick="showAIChat()" title="AI助手" style="bottom: 100px;">
-            <img src="/icons/ai.svg" alt="AI Chat">
+            <img src="icons/ai.svg" alt="AI Chat">
         </div>
         <div class="floating-btn" onclick="openStrmModal()" title="STRM生成器">
-            <img src="/icons/link.svg" alt="STRM">
+            <img src="icons/link.svg" alt="STRM">
         </div>
         <div class="floating-btn" onclick="openCustomPushManagementModal()" title="自定义推送">
-            <img src="/icons/push.svg" alt="自定义推送">
+            <img src="icons/push.svg" alt="自定义推送">
         </div>
         <div class="floating-btn" id="showLogsBtn" title="查看日志">
-            <img src="/icons/logs.svg" alt="查看日志">
+            <img src="icons/logs.svg" alt="查看日志">
         </div>
     </div>
     <div class="floating-btn" onclick="toggleFloatingBtns()" title="更多">
-        <img src="/icons/toggle.svg" alt="更多" id="toggleIcon">
+        <img src="icons/toggle.svg" alt="更多" id="toggleIcon">
     </div>
 </div>
 

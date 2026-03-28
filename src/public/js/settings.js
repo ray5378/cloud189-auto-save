@@ -51,11 +51,13 @@ async function loadSettings() {
             // 账号密码设置
             document.getElementById('systemUserName').value = settings.system?.username || '';
             document.getElementById('systemPassword').value = settings.system?.password || '';
+            document.getElementById('systemBaseUrl').value = settings.system?.baseUrl || '';
             
             const enableStrm = settings.strm?.enable || false
             const enableEmby = settings.emby?.enable || false
             // 媒体信息设置
             document.getElementById('enableStrm').checked = enableStrm;
+            document.getElementById('useStreamProxyForTaskStrm').checked = settings.strm?.useStreamProxy || false;
             document.getElementById('enableEmby').checked = enableEmby;
             document.getElementById('embyServer').value = settings.emby?.serverUrl || '';
             document.getElementById('embyApiKey').value = settings.emby?.apiKey || '';
@@ -167,6 +169,7 @@ async function saveSettings() {
         system: {
             username: document.getElementById('systemUserName').value,
             password: document.getElementById('systemPassword').value,
+            baseUrl: document.getElementById('systemBaseUrl').value.trim(),
             apiKey: document.getElementById('systemApiKey').value
         },
         pushplus: {

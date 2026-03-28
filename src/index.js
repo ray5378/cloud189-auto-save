@@ -25,6 +25,7 @@ const CustomPushService = require('./services/message/CustomPushService');
 const { SubscriptionService } = require('./services/subscription');
 const { StrmConfigService } = require('./services/strmConfig');
 const { TMDBService } = require('./services/tmdb');
+const { StreamProxyService } = require('./services/streamProxy');
 
 const app = express();
 app.use(cors({
@@ -67,7 +68,7 @@ const authenticateSession = (req, res, next) => {
         if (req.path.startsWith('/api/')) {
             res.status(401).json({ success: false, error: '未登录' });
         } else {
-            res.redirect('/login');
+            res.redirect('./login');
         }
     }
 };
@@ -75,7 +76,7 @@ const authenticateSession = (req, res, next) => {
 // 添加根路径处理
 app.get('/', (req, res) => {
     if (!req.session.authenticated) {
-        res.redirect('/login');
+        res.redirect('./login');
     } else {
         res.sendFile(__dirname + '/public/index.html');
     }
@@ -105,6 +106,7 @@ app.use((req, res, next) => {
     if (req.path === '/' || req.path === '/login' 
         || req.path === '/api/auth/login' 
         || req.path === '/api/auth/login' 
+        || req.path.startsWith('/api/stream/')
         || req.path === '/emby/notify'
         || req.path.match(/\.(css|js|png|jpg|jpeg|gif|ico)$/)) {
         return next();
@@ -140,6 +142,7 @@ AppDataSource.initialize().then(async () => {
     const taskService = new TaskService(taskRepo, accountRepo);
     const subscriptionService = new SubscriptionService(subscriptionRepo, subscriptionResourceRepo, accountRepo);
     const strmConfigService = new StrmConfigService(strmConfigRepo, accountRepo, subscriptionRepo, subscriptionResourceRepo);
+    const streamProxyService = new StreamProxyService(accountRepo);
     const tmdbService = new TMDBService();
     const embyService = new EmbyService(taskService)
     const messageUtil = new MessageUtil();
@@ -743,6 +746,16 @@ AppDataSource.initialize().then(async () => {
 
     app.get('/api/version', (req, res) => {
         res.json({ version: currentVersion });
+    });
+
+    app.get('/api/stream/:token', async (req, res) => {
+        try {
+            const latestUrl = await streamProxyService.resolveLatestUrl(req.params.token);
+            res.set('Cache-Control', 'no-store');
+            res.redirect(302, latestUrl);
+        } catch (error) {
+            res.status(403).json({ success: false, error: error.message });
+        }
     });
 
     // 解析分享链接

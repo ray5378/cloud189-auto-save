@@ -66,10 +66,12 @@ class ConfigService {
         username: 'admin',
         password: 'admin',
         baseUrl: '',
-        apiKey: ''
+        apiKey: '',
+        streamProxySecret: ''
       },
       strm: {
         enable: false,
+        useStreamProxy: false,
       },
       emby: {
         enable: false,

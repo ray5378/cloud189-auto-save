@@ -257,7 +257,7 @@ class FolderSelector {
             const isFavorite = favorites.some(f => f.id === node.id);
             const favoriteIcon = this.enableFavorites ? `
                 <span class="favorite-icon ${isFavorite ? 'active' : ''}" data-id="${node.id}" data-name="${node.name}">
-                    <img src="/icons/star.svg" alt="star" width="16" height="16">
+                    <img src="icons/star.svg" alt="star" width="16" height="16">
                 </span>
             ` : '';
 

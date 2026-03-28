@@ -145,8 +145,8 @@ button {
     -webkit-mask-size: cover;
     mask-size: cover;
     background-color: var(--text-color);  /* 使用文本颜色变量 */
-    -webkit-mask-image: url('/icons/github.svg');
-    mask-image: url('/icons/github.svg');
+    -webkit-mask-image: url('../icons/github.svg');
+    mask-image: url('../icons/github.svg');
 }
 
 #version {

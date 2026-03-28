@@ -5,6 +5,7 @@ const { logTaskEvent } = require('../utils/logUtils');
 const CryptoUtils = require('../utils/cryptoUtils');
 const alistService = require('./alistService');
 const { MessageUtil } = require('./message');
+const { StreamProxyService } = require('./streamProxy');
 
 class StrmService {
     constructor() {
@@ -14,6 +15,7 @@ class StrmService {
         this.puid = process.env.PUID || 0;
         this.pgid = process.env.PGID || 0;
         this.messageUtil = new MessageUtil();
+        this.streamProxyService = new StreamProxyService();
     }
 
     // 确保目录存在并设置权限和组，递归创建的所有目录都设置为 777 权限
@@ -107,9 +109,7 @@ class StrmService {
                         // 文件不存在，继续处理
                     }
 
-                    // 生成STRM文件内容
-                    let content;
-                    content = this._joinUrl(this._joinUrl(task.account.cloudStrmPrefix, taskName), fileName);
+                    const content = this._buildTaskStrmContent(task, taskName, file);
                     await fs.writeFile(strmPath, content, 'utf8');
                     // 设置文件权限
                     if (process.getuid && process.getuid() === 0) {
@@ -137,6 +137,22 @@ class StrmService {
         const message = `🎉${task.resourceName} 生成STRM文件完成, 总文件数: ${files.length}, 成功数: ${success}, 失败数: ${failed}, 跳过数: ${skipped}`
         logTaskEvent(message);
         return message;
+    }
+
+    _buildTaskStrmContent(task, taskName, file) {
+        const accountId = task.accountId || task.account?.id;
+        if (ConfigService.getConfigValue('strm.useStreamProxy') && accountId && file?.id) {
+            return this.streamProxyService.buildStreamUrl({
+                type: 'task',
+                accountId,
+                fileId: file.id,
+                fileName: file.name
+            });
+        }
+        if (ConfigService.getConfigValue('strm.useStreamProxy') && (!accountId || !file?.id)) {
+            logTaskEvent(`STRM代理模式缺少必要参数，已回退普通路径: ${file?.name || 'unknown'}`);
+        }
+        return this._joinUrl(this._joinUrl(task.account.cloudStrmPrefix, taskName), file.name);
     }
 
     async generateCustom(targetRoot, files, contentResolver, overwrite = false, compare = false) {

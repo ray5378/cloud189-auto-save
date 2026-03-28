@@ -23,7 +23,7 @@ function initTheme() {
     // 主题选项点击事件
     document.querySelectorAll('.theme-option').forEach(option => {
         option.addEventListener('click', (e) => {
-            const theme = e.target.dataset.theme;
+            const theme = e.currentTarget.dataset.theme;
             setTheme(theme);
             localStorage.setItem('theme', theme);
             themeDropdown.classList.remove('show');
@@ -35,7 +35,7 @@ function setTheme(theme) {
     // 更新主题和状态栏颜色的函数
     const updateThemeAndStatusBar = (isDark) => {
         const currentTheme = isDark ? 'dark' : 'light';
-        const statusBarColor = isDark ? '#1a1a1a' : '#ffffff';
+        const statusBarColor = isDark ? '#121318' : '#f7f9fd';
         document.documentElement.setAttribute('data-theme', currentTheme);
         document.querySelector('meta[name="theme-color"]').setAttribute('content', statusBarColor);
     };
