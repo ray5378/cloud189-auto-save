@@ -15,6 +15,9 @@
         <a href="https://hub.docker.com/r/xia1307/cloud189-auto-save">
             <img src="https://img.shields.io/docker/pulls/xia1307/cloud189-auto-save?style=flat-square" alt="Docker Pulls">
         </a>
+        <a href="https://ghcr.io/1307super/cloud189-auto-save">
+            <img src="https://img.shields.io/badge/GHCR-Container-blue?style=flat-square" alt="GHCR">
+        </a>
     </p>
 </div>
 
@@ -83,7 +86,9 @@
 - 支持暗黑模式
 - 支持多用户管理
 - 支持 Docker 一键部署
+- 支持 Docker Hub / GHCR 镜像拉取
 - 支持 WebUI 可视化管理
+- 支持统一新版主题，提供浅色 / 深色 / 跟随系统模式
 - 支持资源搜索功能
 - 支持企业微信、Telegram, Bark, Wxpusher 消息推送
 - 支持播放代理与代理安全路径
@@ -112,6 +117,25 @@ docker run -d \
   xia1307/cloud189-auto-save
   ```
 注意: `yourpath`请替换为你宿主机的目录; 如果不需要strm功能, 可以不挂载strm目录, 允许配置PUID和PGID, 默认0
+
+### 使用 GHCR 镜像
+
+```bash
+docker run -d \
+  -v /yourpath/data:/home/data \
+  -v /yourpath/strm:/home/strm \
+  -p 3000:3000 \
+  --restart unless-stopped \
+  --name cloud189 \
+  -e PUID=0 \
+  -e PGID=0 \
+  ghcr.io/1307super/cloud189-auto-save:latest
+```
+
+说明：
+- GHCR 镜像地址为 `ghcr.io/1307super/cloud189-auto-save`
+- 工作流会发布 `latest` 和手动指定版本标签
+- 适合不依赖 Docker Hub 的部署场景
 
 ### 访问系统
 
