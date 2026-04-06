@@ -985,7 +985,7 @@ class TaskService {
 
     // 检查任务状态
     async checkTaskStatus(cloud189, taskId, count = 0, batchTaskDto) {
-        if (count > 5) {
+        if (count > 20) {
              return false;
         }
         let type = batchTaskDto.type || 'SHARE_SAVE';
@@ -994,13 +994,14 @@ class TaskService {
         if (!task) {
             return false;
         }
+        const taskStatus = Number(task.taskStatus);
         logTaskEvent(`任务编号: ${task.taskId}, 任务状态: ${task.taskStatus}`)
-        if (task.taskStatus == 3 || task.taskStatus == 1) {
-            // 暂停200毫秒
-            await new Promise(resolve => setTimeout(resolve, 200));
-            return await this.checkTaskStatus(cloud189,taskId, count++, batchTaskDto)
+        if (taskStatus === -1 || taskStatus === 3 || taskStatus === 1) {
+            // 暂停500毫秒
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return await this.checkTaskStatus(cloud189, taskId, count + 1, batchTaskDto)
         }
-        if (task.taskStatus == 4) {
+        if (taskStatus === 4) {
             // 如果failedCount > 0 说明有失败或者被和谐的文件, 需要查一次文件列表
             if (task.failedCount > 0 && type == 'SHARE_SAVE') {
                 const targetFolderId = batchTaskDto.targetFolderId;
@@ -1024,7 +1025,7 @@ class TaskService {
             return true;
         }
         // 如果status == 2 说明有冲突
-        if (task.taskStatus == 2) {
+        if (taskStatus === 2) {
             const conflictTaskInfo = await cloud189.getConflictTaskInfo(taskId, batchTaskDto);
             if (!conflictTaskInfo) {
                 return false
@@ -1035,8 +1036,8 @@ class TaskService {
                 taskInfo.dealWay = 1;
             }
             await cloud189.manageBatchTask(taskId, conflictTaskInfo.targetFolderId, taskInfos, batchTaskDto);
-            await new Promise(resolve => setTimeout(resolve, 200));
-            return await this.checkTaskStatus(cloud189, taskId, count++, batchTaskDto)
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return await this.checkTaskStatus(cloud189, taskId, count + 1, batchTaskDto)
         }
         return false;
     }
