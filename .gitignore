@@ -121,3 +121,9 @@ dist
 *.pem
 /转存助手/*
 .DS_Store
+/.codex
+/dashboard-static-round*.png
+/floating-menu-*.png
+/live-*.png
+/settings-static-round*.png
+/login-redesign-preview.png
