@@ -4,17 +4,17 @@
     <p><strong>天翼云盘全自动转存与媒体管理系统</strong></p>
     <p>自动化监控更新、智能重命名、STRM 生成、Emby/Jellyfin 完美联动</p>
     <p align="center">
-        <a href="https://github.com/1307super/cloud189-auto-save/releases/latest">
-            <img src="https://img.shields.io/github/v/release/1307super/cloud189-auto-save?style=flat-square&color=blue" alt="GitHub release">
+        <a href="https://github.com/wobuhui666/cloud189-auto-save/releases/latest">
+            <img src="https://img.shields.io/github/v/release/wobuhui666/cloud189-auto-save?style=flat-square&color=blue" alt="GitHub release">
         </a>
-        <a href="https://hub.docker.com/r/xia1307/cloud189-auto-save">
-            <img src="https://img.shields.io/docker/pulls/xia1307/cloud189-auto-save?style=flat-square" alt="Docker Pulls">
+        <a href="https://github.com/wobuhui666/cloud189-auto-save/pkgs/container/cloud189-auto-save">
+            <img src="https://img.shields.io/badge/ghcr.io-wobuhui666-blue?style=flat-square&logo=github" alt="GHCR">
         </a>
-        <a href="https://github.com/1307super/cloud189-auto-save/stargazers">
-            <img src="https://img.shields.io/github/stars/1307super/cloud189-auto-save?style=flat-square" alt="GitHub Stars">
+        <a href="https://github.com/wobuhui666/cloud189-auto-save/stargazers">
+            <img src="https://img.shields.io/github/stars/wobuhui666/cloud189-auto-save?style=flat-square" alt="GitHub Stars">
         </a>
-        <a href="https://github.com/1307super/cloud189-auto-save/blob/main/LICENSE">
-            <img src="https://img.shields.io/github/license/1307super/cloud189-auto-save?style=flat-square" alt="License">
+        <a href="https://github.com/wobuhui666/cloud189-auto-save/blob/main/LICENSE">
+            <img src="https://img.shields.io/github/license/wobuhui666/cloud189-auto-save?style=flat-square" alt="License">
         </a>
     </p>
 </div>
@@ -60,7 +60,7 @@ docker run -d \
   -e PUID=0 \
   -e PGID=0 \
   -e DNS_LOOKUP_IP_VERSION=ipv4 \
-  xia1307/cloud189-auto-save:latest
+  ghcr.io/wobuhui666/cloud189-auto-save:latest
 ```
 
 > **注意**：
@@ -88,9 +88,7 @@ docker run -d \
 
 ## 🤝 社区与支持
 
-- **Pro 版介绍**：支持 1000+ 任务、玄鲸极速、Web 预览等。 [查看 Pro 文档](https://1307super.github.io/Cloud189AutoSaveProDoc/)
-- **交流群组**：[Telegram 3群](https://t.me/cloud189_auto_save3) (请且加且珍惜)
-- **问题反馈**：请提交 [Issues](https://github.com/1307super/cloud189-auto-save/issues)
+- **问题反馈**：请提交 [Issues](https://github.com/wobuhui666/cloud189-auto-save/issues)
 
 ---
 
@@ -98,9 +96,8 @@ docker run -d \
 
 如果这个项目帮到了你，请给一个 ⭐️ **Star** 以示支持！
 
-- 特别感谢 **Tencent EdgeOne** 提供的 CDN 加速与安全防护。
 - 感谢所有贡献者与用户提供的宝贵建议。
-
+- 感谢 Codex 和 GeminiCLI
 ---
 
 **Disclaimer**: 本项目仅供学习交流，请勿用于非法用途。开发者不对任何资源内容负责。

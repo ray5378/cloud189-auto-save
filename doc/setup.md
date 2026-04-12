@@ -19,7 +19,7 @@ docker run -d \
   -e PUID=0 \
   -e PGID=0 \
   -e DNS_LOOKUP_IP_VERSION=ipv4 \
-  xia1307/cloud189-auto-save:latest
+  ghcr.io/wobuhui666/cloud189-auto-save:latest
 ```
 
 #### 环境变量说明
