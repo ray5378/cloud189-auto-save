@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 天翼云盘自动转存系统</title>
+    <meta name="theme-color" content="#ffffff">
+    <meta name="color-scheme" content="light dark">
+    <link rel="icon" type="image/png" href="favicon/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="favicon/favicon.svg" />
+    <link rel="shortcut icon" href="favicon/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="自动转存" />
+    <link rel="manifest" href="favicon/site.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,700&display=swap" rel="stylesheet">
+    
+    <!-- BeerCSS & Material Dynamic Colors -->
+    <link href="https://cdn.jsdelivr.net/npm/beercss@3.7.10/dist/cdn/beer.min.css" rel="stylesheet">
+    <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@3.7.10/dist/cdn/beer.min.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.2/dist/cdn/material-dynamic-colors.min.js"></script>
+
+    <link rel="stylesheet" href="css/message.css">
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: var(--surface-container-lowest);
+        }
+        .login-article {
+            width: 100%;
+            max-width: 400px;
+            padding: 2rem;
+            margin: 1rem;
+        }
+        .login-overline {
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+        .login-title {
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+        }
+        .login-subtitle {
+            color: var(--on-surface-variant);
+            margin-bottom: 2rem;
+        }
+        .login-footer {
+            margin-top: 1.5rem;
+            font-size: 0.875rem;
+            color: var(--on-surface-variant);
+            text-align: center;
+        }
+        .login-btn {
+            width: 100%;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body class="light">
+    <article class="round login-article">
+        <div class="login-overline">Cloud189 Auto Save</div>
+        <h4 class="login-title">欢迎回来</h4>
+        <p class="login-subtitle">登录后即可进入 Material Design 3 控制台，继续管理任务、订阅和 STRM 流程。</p>
+        
+        <form id="loginForm">
+            <div class="field label border">
+                <input type="text" id="username" name="username" required autocomplete="username">
+                <label>用户名</label>
+            </div>
+            
+            <div class="field label border" style="margin-top: 1rem;">
+                <input type="password" id="password" name="password" required autocomplete="current-password">
+                <label>密码</label>
+            </div>
+            
+            <button type="submit" class="primary login-btn">登录</button>
+        </form>
+        
+        <div class="login-footer">默认主题会跟随系统，也可以登录后切换为浅色或深色模式。</div>
+    </article>
+
+    <script src="js/basePath.js"></script>
+    <script src="js/message.js"></script>
+    <script>
+        // BeerCSS automatically handles light/dark mode if material-dynamic-colors is included
+        // 替换登录表单提交处理代码
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    window.location.href = './';
+                } else {
+                    message.error(data.error || '登录失败');
+                }
+            } catch (error) {
+                message.error('登录失败');
+            }
+        });
+    </script>
+</body>
+</html>
