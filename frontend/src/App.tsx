@@ -71,9 +71,9 @@ export default function App() {
     if (!confirm('确定要退出登录吗？')) return;
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
-      window.location.href = './login';
+      window.location.href = '/login';
     } catch (e) {
-      window.location.href = './login';
+      window.location.href = '/login';
     }
   };
 

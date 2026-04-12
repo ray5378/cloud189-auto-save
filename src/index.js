@@ -32,6 +32,7 @@ const { AutoSeriesService } = require('./services/autoSeries');
 
 const appPort = Number(process.env.PORT || 3000);
 let embyStandaloneProxyServer = null;
+const publicDir = path.join(__dirname, 'public');
 const corsOptions = {
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -73,6 +74,164 @@ const isEmbyProxyRequestPath = (requestUrl = '', basePath = '/emby-proxy') => {
         return true;
     }
     return pathname === basePath || pathname.startsWith(`${basePath}/`);
+};
+
+const loginPageFallbackHtml = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 天翼云盘自动转存系统</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --border: #dbe3f0;
+            --text: #0f172a;
+            --muted: #475569;
+            --primary: #0b57d0;
+            --primary-hover: #0948ad;
+            --danger: #dc2626;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .card {
+            width: 100%;
+            max-width: 420px;
+            padding: 32px;
+            border-radius: 24px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+        }
+        .eyebrow {
+            margin: 0 0 8px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: var(--primary);
+            text-transform: uppercase;
+        }
+        h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+        p {
+            margin: 0 0 24px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        input {
+            width: 100%;
+            height: 48px;
+            padding: 0 14px;
+            margin-bottom: 16px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            font-size: 14px;
+            background: #fff;
+        }
+        input:focus {
+            outline: 2px solid rgba(11, 87, 208, 0.18);
+            border-color: var(--primary);
+        }
+        button {
+            width: 100%;
+            height: 48px;
+            border: 0;
+            border-radius: 14px;
+            background: var(--primary);
+            color: #fff;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        button:hover { background: var(--primary-hover); }
+        button:disabled { opacity: 0.7; cursor: not-allowed; }
+        .error {
+            min-height: 20px;
+            margin-top: 12px;
+            color: var(--danger);
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <div class="eyebrow">Cloud189 Auto Save</div>
+        <h1>登录</h1>
+        <p>输入系统账号后进入控制台。</p>
+        <form id="loginForm">
+            <label for="username">用户名</label>
+            <input id="username" name="username" type="text" autocomplete="username" required />
+            <label for="password">密码</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required />
+            <button id="submitButton" type="submit">登录</button>
+            <div id="errorMessage" class="error"></div>
+        </form>
+    </main>
+    <script>
+        const form = document.getElementById('loginForm');
+        const submitButton = document.getElementById('submitButton');
+        const errorMessage = document.getElementById('errorMessage');
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            errorMessage.textContent = '';
+            submitButton.disabled = true;
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('username').value,
+                        password: document.getElementById('password').value
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    window.location.href = '/';
+                    return;
+                }
+                errorMessage.textContent = data.error || '登录失败';
+            } catch (error) {
+                errorMessage.textContent = '登录请求失败';
+            } finally {
+                submitButton.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>`;
+
+const sendPublicFileOrFallback = async (res, fileName, fallbackHtml) => {
+    const filePath = path.join(publicDir, fileName);
+    try {
+        await fs.access(filePath);
+        res.sendFile(filePath);
+    } catch (error) {
+        if (fallbackHtml) {
+            res.type('html').send(fallbackHtml);
+            return;
+        }
+        throw error;
+    }
 };
 
 const createStandaloneEmbyProxyApp = (embyService) => {
@@ -162,24 +321,24 @@ const authenticateSession = (req, res, next) => {
         if (req.path.startsWith('/api/')) {
             res.status(401).json({ success: false, error: '未登录' });
         } else {
-            res.redirect('./login');
+            res.redirect('/login');
         }
     }
 };
 
 // 添加根路径处理
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
     if (!req.session.authenticated) {
-        res.redirect('./login');
-    } else {
-        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+        res.redirect('/login');
+        return;
     }
+    await sendPublicFileOrFallback(res, 'index.html');
 });
 
 
 // 登录页面
-app.get('/login', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+app.get('/login', async (req, res) => {
+    await sendPublicFileOrFallback(res, 'login.html', loginPageFallbackHtml);
 });
 
 // 登录接口
@@ -194,7 +353,7 @@ app.post('/api/auth/login', (req, res) => {
         res.json({ success: false, error: '用户名或密码错误' });
     }
 });
-app.use(express.static(path.join(__dirname,'public')));
+app.use(express.static(publicDir));
 // 为所有路由添加认证（除了登录页和登录接口）
 app.use((req, res, next) => {
     if (req.path === '/' || req.path === '/login' 
@@ -1107,6 +1266,14 @@ AppDataSource.initialize().then(async () => {
             res.json({success: true, data: null})
         } catch (error) {
             res.json({success: false, error: error.message})
+        }
+    })
+
+    app.get('/api/settings/regex-presets', async (req, res) => {
+        try {
+            res.json({ success: true, data: ConfigService.getConfigValue('regexPresets', []) });
+        } catch (error) {
+            res.json({ success: false, error: error.message });
         }
     })
 

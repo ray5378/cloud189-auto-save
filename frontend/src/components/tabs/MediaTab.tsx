@@ -76,7 +76,7 @@ const initialSettings: MediaSettings = {
     baseUrl: '', 
     apiKey: '', 
     model: '', 
-    rename: { template: '{name} - {se}{ext}', movieTemplate: '{name} - {year}{ext}' } 
+    rename: { template: '{name} - {se}{ext}', movieTemplate: '{name} ({year}){ext}' } 
   },
   alist: { enable: false, baseUrl: '', apiKey: '' }
 };
@@ -106,27 +106,38 @@ const MediaTab: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [settingsRes, regexRes] = await Promise.all([
-        fetch('/api/settings'),
-        fetch('/api/settings/regex-presets')
-      ]);
+      const settingsRes = await fetch('/api/settings');
       const settingsData = await settingsRes.json();
-      const regexData = await regexRes.json();
       
       if (settingsData.success) {
         // Merge with initial settings to ensure all nested objects exist
         const fetched = settingsData.data;
         setSettings({
           strm: { ...initialSettings.strm, ...fetched.strm },
-          emby: { ...initialSettings.emby, ...fetched.emby },
+          emby: {
+            ...initialSettings.emby,
+            ...fetched.emby,
+            proxy: { ...initialSettings.emby.proxy, ...fetched.emby?.proxy }
+          },
           cloudSaver: { ...initialSettings.cloudSaver, ...fetched.cloudSaver },
           tmdb: { ...initialSettings.tmdb, ...fetched.tmdb },
-          openai: { ...initialSettings.openai, ...fetched.openai },
+          openai: {
+            ...initialSettings.openai,
+            ...fetched.openai,
+            rename: { ...initialSettings.openai.rename, ...fetched.openai?.rename }
+          },
           alist: { ...initialSettings.alist, ...fetched.alist },
         });
       }
-      if (regexData.success) {
-        setRegexPresets(regexData.data || []);
+
+      try {
+        const regexRes = await fetch('/api/settings/regex-presets');
+        const regexData = await regexRes.json();
+        if (regexData.success) {
+          setRegexPresets(regexData.data || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch regex presets:', error);
       }
     } catch (error) {
       console.error('Failed to fetch media settings:', error);
@@ -286,6 +297,15 @@ const MediaTab: React.FC = () => {
               />
             </div>
           </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700">电影命名模板</label>
+            <input 
+              type="text" 
+              value={settings.openai.rename.movieTemplate}
+              onChange={e => updateSetting('openai.rename.movieTemplate', e.target.value)}
+              className="w-full px-5 py-3 bg-slate-50 border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+            />
+          </div>
           <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex gap-3">
             <AlertCircle size={20} className="text-blue-600 shrink-0 mt-0.5" />
             <p className="text-xs text-blue-800 leading-relaxed">
@@ -395,6 +415,45 @@ const MediaTab: React.FC = () => {
                 />
               </div>
             )}
+          </div>
+        </div>
+      </section>
+
+      {/* CloudSaver Settings */}
+      <section className="space-y-4">
+        <h3 className="text-xl font-medium text-slate-900 flex items-center gap-3">
+          <Monitor size={24} className="text-[#0b57d0]" /> CloudSaver 设置
+        </h3>
+        <div className="bg-white rounded-3xl border border-slate-200/60 p-8 space-y-6 shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-2 md:col-span-3">
+              <label className="text-sm font-medium text-slate-700">服务地址</label>
+              <input
+                type="text"
+                value={settings.cloudSaver.baseUrl}
+                onChange={e => updateSetting('cloudSaver.baseUrl', e.target.value)}
+                placeholder="http://127.0.0.1:8008"
+                className="w-full px-5 py-3 bg-slate-50 border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">用户名</label>
+              <input
+                type="text"
+                value={settings.cloudSaver.username}
+                onChange={e => updateSetting('cloudSaver.username', e.target.value)}
+                className="w-full px-5 py-3 bg-slate-50 border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">密码</label>
+              <input
+                type="password"
+                value={settings.cloudSaver.password}
+                onChange={e => updateSetting('cloudSaver.password', e.target.value)}
+                className="w-full px-5 py-3 bg-slate-50 border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+              />
+            </div>
           </div>
         </div>
       </section>
