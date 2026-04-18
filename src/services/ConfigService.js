@@ -90,6 +90,11 @@ class ConfigService {
         proxy: {
           enable: false,
           port: 8097
+        },
+        prewarm: {
+          enable: false,
+          sessionPollIntervalMs: 30000,
+          dedupeTtlMs: 300000
         }
       },
       cloudSaver: {

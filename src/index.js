@@ -19,6 +19,7 @@ const { setupCloudSaverRoutes, clearCloudSaverToken } = require('./sdk/cloudsave
 const { Like, Not, IsNull, In, Or } = require('typeorm');
 const cors = require('cors'); 
 const { EmbyService } = require('./services/emby');
+const { EmbyPrewarmService } = require('./services/embyPrewarm');
 const { StrmService } = require('./services/strm');
 const AIService = require('./services/ai');
 const CustomPushService = require('./services/message/CustomPushService');
@@ -448,6 +449,8 @@ AppDataSource.initialize().then(async () => {
     const autoSeriesService = new AutoSeriesService(taskService, accountRepo, lazyShareStrmService);
     const tmdbService = new TMDBService();
     const embyService = new EmbyService(taskService)
+    const embyPrewarmService = new EmbyPrewarmService(embyService);
+    embyService.attachPrewarmService(embyPrewarmService);
     const messageUtil = new MessageUtil();
     // 机器人管理
     const botManager = TelegramBotManager.getInstance();
@@ -462,6 +465,7 @@ AppDataSource.initialize().then(async () => {
     // 初始化任务定时器
     await SchedulerService.initTaskJobs(taskRepo, taskService);
     await SchedulerService.initStrmConfigJobs(strmConfigRepo, strmConfigService);
+    await embyPrewarmService.reload();
 
     app.use('/emby-proxy', async (req, res) => {
         await embyService.handleProxyRequest(req, res, { basePath: '/emby-proxy' });
@@ -1292,6 +1296,7 @@ AppDataSource.initialize().then(async () => {
         // 修改配置, 重新实例化消息推送
         messageUtil.updateConfig()
         Cloud189Service.setProxy()
+        await embyPrewarmService.reload();
         res.json({success: true, data: null})
     })
 
@@ -1309,6 +1314,7 @@ AppDataSource.initialize().then(async () => {
             }
             ConfigService.setConfig(settings)
             await syncStandaloneEmbyProxyServer(embyService);
+            await embyPrewarmService.reload();
             res.json({success: true, data: null})
         } catch (error) {
             res.json({success: false, error: error.message})

@@ -13,7 +13,7 @@ const { StrmService } = require('./strm');
 const { StreamProxyService } = require('./streamProxy');
 const { LazyShareStrmService } = require('./lazyShareStrm');
 
-const { Not, IsNull, Like } = require('typeorm'); 
+const { Not, IsNull, Like } = require('typeorm');
 
 // emby接口
 class EmbyService {
@@ -31,6 +31,7 @@ class EmbyService {
         this._strmService = new StrmService();
         this._streamProxyService = new StreamProxyService(this._accountRepo);
         this._lazyShareStrmService = new LazyShareStrmService(this._accountRepo, taskService);
+        this._prewarmService = null;
         this._refreshConfig();
     }
 
@@ -51,6 +52,17 @@ class EmbyService {
     isProxyEnabled() {
         this._refreshConfig();
         return this.proxyEnabled;
+    }
+
+    attachPrewarmService(prewarmService) {
+        this._prewarmService = prewarmService || null;
+    }
+
+    triggerPrewarm(context = {}) {
+        if (!this._prewarmService) {
+            return;
+        }
+        void this._prewarmService.schedulePrewarm(context);
     }
 
     async handleProxyRequest(req, res, options = {}) {
@@ -74,6 +86,11 @@ class EmbyService {
                 if (directUrl) {
                     res.set('Cache-Control', 'no-store');
                     res.redirect(302, directUrl);
+                    this.triggerPrewarm({
+                        itemId: this._extractItemId(relativePath),
+                        userId: req.query?.UserId || req.query?.userId || '',
+                        source: 'proxy'
+                    });
                     return;
                 }
             } catch (error) {
@@ -211,7 +228,7 @@ class EmbyService {
             searchParams: {
                 Ids: id,
                 Recursive: true,
-                Fields: 'Path,MediaSources,ProviderIds,Name'
+                Fields: 'Path,MediaSources,ProviderIds,Name,SeriesId,ParentIndexNumber,IndexNumber,SeriesName,SeasonId'
             },
         });
         return response?.Items?.[0] || null;
@@ -528,13 +545,16 @@ class EmbyService {
         if (!itemId) {
             throw new Error('未解析到 Emby 媒体项 ID');
         }
+        return await this.resolveDirectUrlByItemId(itemId, query.MediaSourceId || query.mediaSourceId || '');
+    }
 
+    async resolveDirectUrlByItemId(itemId, mediaSourceId = '') {
         const item = await this.getItemById(itemId);
         if (!item) {
             throw new Error(`未获取到 Emby 媒体项: ${itemId}`);
         }
 
-        const mediaPath = this._resolveMediaPath(item, query.MediaSourceId || query.mediaSourceId);
+        const mediaPath = this._resolveMediaPath(item, mediaSourceId);
         if (!mediaPath) {
             throw new Error(`Emby 媒体项缺少可用路径: ${itemId}`);
         }

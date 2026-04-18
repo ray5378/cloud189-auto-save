@@ -28,7 +28,12 @@ interface MediaSettings {
     proxy: {
       enable: boolean;
       port: number;
-    }
+    };
+    prewarm: {
+      enable: boolean;
+      sessionPollIntervalMs: number;
+      dedupeTtlMs: number;
+    };
   };
   cloudSaver: {
     baseUrl: string;
@@ -77,7 +82,13 @@ interface RegexPreset {
 
 const initialSettings: MediaSettings = {
   strm: { enable: false, useStreamProxy: false },
-  emby: { enable: false, serverUrl: '', apiKey: '', proxy: { enable: false, port: 8097 } },
+  emby: {
+    enable: false,
+    serverUrl: '',
+    apiKey: '',
+    proxy: { enable: false, port: 8097 },
+    prewarm: { enable: false, sessionPollIntervalMs: 30000, dedupeTtlMs: 300000 }
+  },
   cloudSaver: { baseUrl: '', username: '', password: '' },
   tmdb: { enableScraper: false, tmdbApiKey: '' },
   openai: { 
@@ -135,7 +146,8 @@ const MediaTab: React.FC = () => {
           emby: {
             ...initialSettings.emby,
             ...fetched.emby,
-            proxy: { ...initialSettings.emby.proxy, ...fetched.emby?.proxy }
+            proxy: { ...initialSettings.emby.proxy, ...fetched.emby?.proxy },
+            prewarm: { ...initialSettings.emby.prewarm, ...fetched.emby?.prewarm }
           },
           cloudSaver: { ...initialSettings.cloudSaver, ...fetched.cloudSaver },
           tmdb: { ...initialSettings.tmdb, ...fetched.tmdb },
@@ -415,27 +427,64 @@ const MediaTab: React.FC = () => {
               />
             </div>
           </div>
-          <div className="flex items-center gap-6">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <div 
-                onClick={() => updateSetting('emby.proxy.enable', !settings.emby.proxy.enable)}
-                className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
-                  settings.emby.proxy.enable ? 'bg-[#0b57d0] border-[#0b57d0]' : 'border-slate-300 bg-white'
-                }`}
-              >
-                {settings.emby.proxy.enable && <div className="w-2.5 h-2.5 bg-white rounded-sm" />}
-              </div>
-              <span className="text-sm font-medium text-slate-900">启用 Emby 反代播放</span>
-            </label>
-            {settings.emby.proxy.enable && (
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-slate-700">代理端口</label>
-                <input 
-                  type="number" 
-                  value={settings.emby.proxy.port}
-                  onChange={e => updateSetting('emby.proxy.port', parseInt(e.target.value))}
-                  className="w-24 px-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
-                />
+          <div className="space-y-4">
+            <div className="flex items-center gap-6 flex-wrap">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div
+                  onClick={() => updateSetting('emby.proxy.enable', !settings.emby.proxy.enable)}
+                  className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
+                    settings.emby.proxy.enable ? 'bg-[#0b57d0] border-[#0b57d0]' : 'border-slate-300 bg-white'
+                  }`}
+                >
+                  {settings.emby.proxy.enable && <div className="w-2.5 h-2.5 bg-white rounded-sm" />}
+                </div>
+                <span className="text-sm font-medium text-slate-900">启用 Emby 反代播放</span>
+              </label>
+              {settings.emby.proxy.enable && (
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-slate-700">代理端口</label>
+                  <input
+                    type="number"
+                    value={settings.emby.proxy.port}
+                    onChange={e => updateSetting('emby.proxy.port', parseInt(e.target.value))}
+                    className="w-24 px-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-6 flex-wrap">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div
+                  onClick={() => updateSetting('emby.prewarm.enable', !settings.emby.prewarm.enable)}
+                  className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
+                    settings.emby.prewarm.enable ? 'bg-[#0b57d0] border-[#0b57d0]' : 'border-slate-300 bg-white'
+                  }`}
+                >
+                  {settings.emby.prewarm.enable && <div className="w-2.5 h-2.5 bg-white rounded-sm" />}
+                </div>
+                <span className="text-sm font-medium text-slate-900">启用下一集预热</span>
+              </label>
+            </div>
+            {settings.emby.prewarm.enable && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700">Sessions 轮询间隔(ms)</label>
+                  <input
+                    type="number"
+                    value={settings.emby.prewarm.sessionPollIntervalMs}
+                    onChange={e => updateSetting('emby.prewarm.sessionPollIntervalMs', parseInt(e.target.value) || 30000)}
+                    className="w-full px-5 py-3 bg-slate-50 border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700">预热去重时长(ms)</label>
+                  <input
+                    type="number"
+                    value={settings.emby.prewarm.dedupeTtlMs}
+                    onChange={e => updateSetting('emby.prewarm.dedupeTtlMs', parseInt(e.target.value) || 300000)}
+                    className="w-full px-5 py-3 bg-slate-50 border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+                  />
+                </div>
               </div>
             )}
           </div>
