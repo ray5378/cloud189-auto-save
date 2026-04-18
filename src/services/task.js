@@ -1610,7 +1610,11 @@ class TaskService {
 
     // 校验目录是否在目录列表中
     checkFolderInList(taskDto, folderId) {
-        return (!taskDto.selectedFolders || taskDto.selectedFolders.length === 0) || taskDto.tgbot || (taskDto.selectedFolders?.includes(folderId) || false);
+        if (!taskDto.selectedFolders || taskDto.selectedFolders.length === 0) return true;
+        if (taskDto.tgbot) return true;
+        // 统一转字符串比较, 避免前端传数字 -1 与后端字符串 '-1' 不匹配
+        const target = String(folderId);
+        return taskDto.selectedFolders.some(id => String(id) === target);
     }
 
     // 校验云盘中是否存在同名目录
