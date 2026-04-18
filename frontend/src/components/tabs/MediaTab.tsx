@@ -49,6 +49,7 @@ interface MediaSettings {
     baseUrl: string;
     apiKey: string;
     model: string;
+    flowControlEnabled: boolean;
     rename: {
       template: string;
       movieTemplate: string;
@@ -96,6 +97,7 @@ const initialSettings: MediaSettings = {
     baseUrl: '', 
     apiKey: '', 
     model: '', 
+    flowControlEnabled: false,
     rename: { template: '{name} - {se}{ext}', movieTemplate: '{name} ({year}){ext}' } 
   },
   alist: { enable: false, baseUrl: '', apiKey: '' },
@@ -331,6 +333,21 @@ const MediaTab: React.FC = () => {
                 className="w-full px-5 py-3 bg-slate-50 border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
               />
             </div>
+          </div>
+          <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
+            <div className="pr-6">
+              <p className="text-sm font-medium text-slate-900">AI API 流控</p>
+              <p className="text-xs text-slate-500">开启后会将 AI 请求串行排队，降低上游接口并发压力。</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={settings.openai.flowControlEnabled}
+                onChange={e => updateSetting('openai.flowControlEnabled', e.target.checked)}
+              />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0b57d0]"></div>
+            </label>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700">电影命名模板</label>

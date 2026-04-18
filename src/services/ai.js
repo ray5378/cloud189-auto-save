@@ -15,6 +15,10 @@ class AIService {
             maxAttempts: 3,
             delayMs: 1500
         };
+        this.flowControl = {
+            chain: Promise.resolve(),
+            queueSize: 0
+        };
     }
 
     async _retryOperation(operationName, executor, options = {}) {
@@ -61,6 +65,43 @@ class AIService {
         }
         return openaiConfig?.enable && openaiConfig?.apiKey && openaiConfig?.baseUrl && openaiConfig?.model;
     }
+
+    isFlowControlEnabled(openaiConfig) {
+        if (!openaiConfig) {
+            openaiConfig = ConfigService.getConfigValue('openai');
+        }
+        return Boolean(openaiConfig?.flowControlEnabled);
+    }
+
+    async _runWithFlowControl(operationName, executor, openaiConfig) {
+        if (!this.isFlowControlEnabled(openaiConfig)) {
+            return await executor();
+        }
+
+        const previousChain = this.flowControl.chain;
+        let releaseCurrent = null;
+
+        this.flowControl.queueSize += 1;
+        this.flowControl.chain = new Promise((resolve) => {
+            releaseCurrent = () => {
+                this.flowControl.queueSize = Math.max(0, this.flowControl.queueSize - 1);
+                resolve();
+            };
+        });
+
+        const waitingCount = Math.max(0, this.flowControl.queueSize - 1);
+        if (waitingCount > 0) {
+            logTaskEvent(`AI流控：${operationName}进入队列，前方还有 ${waitingCount} 个请求`);
+        }
+
+        try {
+            await previousChain;
+            return await executor();
+        } finally {
+            releaseCurrent && releaseCurrent();
+        }
+    }
+
     async chat(messages, config = {}) {
         try {
             const openaiConfig = ConfigService.getConfigValue('openai')
@@ -71,25 +112,27 @@ class AIService {
             const baseURL = openaiConfig?.baseUrl || 'https://api.openai.com/v1';
             const model = openaiConfig?.model || 'gpt-3.5-turbo';
 
-            const response = await got.post(`${baseURL}/chat/completions`, {
-                json: {
-                    model,
-                    messages,
-                    stream: false,
-                    ...this.defaultConfig,
-                    ...config
-                },
-                headers: {
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                responseType: 'json'
-            });
+            return await this._runWithFlowControl('AI聊天请求', async () => {
+                const response = await got.post(`${baseURL}/chat/completions`, {
+                    json: {
+                        model,
+                        messages,
+                        stream: false,
+                        ...this.defaultConfig,
+                        ...config
+                    },
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    responseType: 'json'
+                });
 
-            return {
-                success: true,
-                data: response.body.choices[0].message.content
-            };
+                return {
+                    success: true,
+                    data: response.body.choices[0].message.content
+                };
+            });
         } catch (error) {
             let errorDetails = error.message;
             if (error.response) {
@@ -499,45 +542,47 @@ class AIService {
             const baseURL = openaiConfig?.baseUrl || 'https://api.openai.com/v1';
             const model = openaiConfig?.model || 'gpt-3.5-turbo';
 
-            const response = await got.post(`${baseURL}/chat/completions`, {
-                json: {
-                    model,
-                    messages: [
-                        {
-                            role: 'user',
-                            content: message
-                        }
-                    ],
-                    stream: true,
-                    ...this.defaultConfig
-                },
-                headers: {
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                responseType: 'text',
-                isStream: true
-            });
+            await this._runWithFlowControl('AI流式聊天请求', async () => {
+                const response = await got.post(`${baseURL}/chat/completions`, {
+                    json: {
+                        model,
+                        messages: [
+                            {
+                                role: 'user',
+                                content: message
+                            }
+                        ],
+                        stream: true,
+                        ...this.defaultConfig
+                    },
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    responseType: 'text',
+                    isStream: true
+                });
 
-            // 处理流式响应
-            for await (const chunk of response) {
-                try {
-                    const lines = chunk.toString().split('\n').filter(line => line.trim() !== '');
-                    for (const line of lines) {
-                        if (line.includes('[DONE]')) continue;
-                        if (line.startsWith('data: ')) {
-                            const data = JSON.parse(line.slice(5));
-                            if (data.choices[0].delta?.content) {
-                                onChunk(data.choices[0].delta.content);
+                // 处理流式响应
+                for await (const chunk of response) {
+                    try {
+                        const lines = chunk.toString().split('\n').filter(line => line.trim() !== '');
+                        for (const line of lines) {
+                            if (line.includes('[DONE]')) continue;
+                            if (line.startsWith('data: ')) {
+                                const data = JSON.parse(line.slice(5));
+                                if (data.choices[0].delta?.content) {
+                                    onChunk(data.choices[0].delta.content);
+                                }
                             }
                         }
+                    } catch (error) {
+                        console.error('处理响应块时出错:', error);
                     }
-                } catch (error) {
-                    console.error('处理响应块时出错:', error);
                 }
-            }
-            // 所有块处理完成后，发送结束标识
-            onChunk('[END]');
+                // 所有块处理完成后，发送结束标识
+                onChunk('[END]');
+            }, openaiConfig);
         } catch (error) {
             console.error('AI 流式服务调用失败:', error.message);
             throw error;

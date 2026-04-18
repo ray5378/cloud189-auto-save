@@ -121,6 +121,7 @@ class ConfigService {
         baseUrl: '',
         apiKey: '',
         model: 'GLM-4-Flash-250414',
+        flowControlEnabled: false,
         rename: {
           template: "{name} - {se}{ext}",  // 默认模板
           movieTemplate: "{name} ({year}){ext}",  // 电影模板
