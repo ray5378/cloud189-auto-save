@@ -6,8 +6,25 @@ const ProxyUtil = require('../utils/ProxyUtil');
 const UploadCryptoUtils = require('../utils/UploadCryptoUtils');
 const ConfigService = require('./ConfigService');
 
-const CAS_SLICE_SIZE = 10 * 1024 * 1024; // 10MB
+const CAS_SLICE_SIZE = 10 * 1024 * 1024; // 10MB（默认分片；超大文件自动放大）
 const MAX_COMMIT_RETRY = 3;
+
+// 与 OpenList-CAS 189pc 对齐的动态分片策略（避免 InvalidPartSize）：
+// - ≤ 10MB*999 (~9.75GB)       : 10MB
+// - ≤ 10MB*2*999 (~19.5GB)     : 20MB
+// - 更大                        : ceil(fileSize / 1999 / 10MB) 向上，最小 5 倍（即 50MB 起）
+function calcCasSliceSize(fileSize) {
+    const DEFAULT = CAS_SLICE_SIZE;
+    const size = Number(fileSize) || 0;
+    if (size > DEFAULT * 2 * 999) {
+        const mult = Math.max(Math.ceil(size / 1999 / DEFAULT), 5);
+        return mult * DEFAULT;
+    }
+    if (size > DEFAULT * 999) {
+        return DEFAULT * 2;
+    }
+    return DEFAULT;
+}
 const RSA_KEY_TTL_MS = 5 * 60 * 1000;
 const FAMILY_API_BASE = 'https://api.cloud.189.cn';
 const DEFAULT_UA =
@@ -185,7 +202,7 @@ class CasService {
         if (!err) return false;
         if (err.isBlacklisted) return true;
         const msg = String(err.message || '');
-        if (/InfoSecurityErrorCode|black list|风控|黑名单/i.test(msg)) return true;
+        if (/InfoSecurityErrorCode|black list|风控|黑名单|InvalidPartSize|invalid part ?size/i.test(msg)) return true;
         const status = err?.response?.statusCode;
         if (status === 403) return true;
         return false;
@@ -195,13 +212,14 @@ class CasService {
 
     async _restorePersonal(cloud189, parentFolderId, casInfo, restoreName) {
         const sessionKey = await cloud189.getSessionKeyForUpload();
+        const sliceSize = calcCasSliceSize(casInfo.size);
 
         // 1. initMultiUpload（不传 md5，lazyCheck=1）
         const initRes = await this._uploadRequest(cloud189, sessionKey, '/person/initMultiUpload', {
             parentFolderId: String(parentFolderId),
             fileName: encodeURIComponent(restoreName),
             fileSize: String(casInfo.size),
-            sliceSize: String(CAS_SLICE_SIZE),
+            sliceSize: String(sliceSize),
             lazyCheck: '1'
         });
 
@@ -392,6 +410,7 @@ class CasService {
 
     async _familyRapidUpload(cloud189, familyId, familyFolderId, casInfo, fileName) {
         const sessionKey = await cloud189.getSessionKeyForUpload();
+        const sliceSize = calcCasSliceSize(casInfo.size);
 
         // 1. /family/initMultiUpload（lazyCheck=1，不传 md5 规避黑名单）
         const initRes = await this._uploadRequest(cloud189, sessionKey, '/family/initMultiUpload', {
@@ -399,7 +418,7 @@ class CasService {
             familyId: String(familyId),
             fileName: encodeURIComponent(fileName),
             fileSize: String(casInfo.size),
-            sliceSize: String(CAS_SLICE_SIZE),
+            sliceSize: String(sliceSize),
             lazyCheck: '1'
         });
         const uploadFileId = this._jsonGet(initRes, 'data', 'uploadFileId');
