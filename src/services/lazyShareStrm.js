@@ -564,8 +564,9 @@ class LazyShareStrmService {
     }
 
     async _waitForTransferredFile(cloud189, targetFolderId, fileName, submitResult = {}, maxAttempts = 120, intervalMs = 1000) {
+        const totalAttempts = submitResult.canTrackTask === false ? 15 : maxAttempts;
         let lastTaskStatus = null;
-        for (let index = 0; index < maxAttempts; index++) {
+        for (let index = 0; index < totalAttempts; index++) {
             const file = await this._findFileByName(cloud189, targetFolderId, fileName);
             if (file) {
                 logTaskEvent(`懒转存完成: ${fileName}`);
@@ -576,11 +577,13 @@ class LazyShareStrmService {
                 lastTaskStatus = await this._syncShareSaveTask(cloud189, submitResult.taskId, submitResult.batchTaskDto);
             }
 
-            if (index < maxAttempts - 1) {
+            if (index < totalAttempts - 1) {
                 await new Promise((resolve) => setTimeout(resolve, intervalMs));
             }
         }
-        const statusMessage = lastTaskStatus == null ? '' : `, 最后任务状态: ${lastTaskStatus}`;
+        const statusMessage = submitResult.canTrackTask === false
+            ? ', 云盘返回重复提交但未返回任务编号，无法跟踪现有任务状态'
+            : (lastTaskStatus == null ? '' : `, 最后任务状态: ${lastTaskStatus}`);
         throw new Error(`懒转存完成后未找到目标文件${statusMessage}`);
     }
 
@@ -625,17 +628,27 @@ class LazyShareStrmService {
         if (!resp) {
             throw new Error('懒转存任务提交失败');
         }
+        const taskId = resp.taskId ? String(resp.taskId) : null;
         if (resp.res_code === 'RequestResubmit') {
-            logTaskEvent(`懒转存复用已有转存任务: ${payload.fileName}`);
-            return { taskId: null, batchTaskDto };
+            if (taskId) {
+                logTaskEvent(`懒转存复用已有转存任务: ${payload.fileName}, 任务ID: ${taskId}`);
+            } else {
+                logTaskEvent(`懒转存收到重复提交响应但未返回任务ID: ${payload.fileName}`);
+            }
+            return {
+                taskId,
+                batchTaskDto,
+                canTrackTask: !!taskId
+            };
         }
         if (Number(resp.res_code) !== 0) {
             throw new Error(resp.res_msg || resp.res_message || '懒转存任务提交失败');
         }
         logTaskEvent(`懒转存任务已提交: ${JSON.stringify(resp)}`);
         return {
-            taskId: resp.taskId ? String(resp.taskId) : null,
-            batchTaskDto
+            taskId,
+            batchTaskDto,
+            canTrackTask: true
         };
     }
 }
