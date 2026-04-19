@@ -9,6 +9,7 @@ const { StreamProxyService } = require('./streamProxy');
 const AIService = require('./ai');
 const { OrganizerService } = require('./organizer');
 const { CasService } = require('./casService');
+const { CasMetadataCacheService } = require('./casMetadataCache');
 
 class LazyShareStrmService {
     constructor(accountRepo, taskService) {
@@ -18,9 +19,14 @@ class LazyShareStrmService {
         this.streamProxyService = new StreamProxyService();
         this.organizerService = new OrganizerService(taskService);
         this.casService = new CasService();
+        this.casMetadataCache = new CasMetadataCacheService();
         this.cache = new Map();
         this.inflight = new Map();
         this.transferInflight = new Map();
+        this.cleanupInflight = new Map();
+        this.casMetadataInflight = new Map();
+        this.casMetadataPrewarmInflight = new Map();
+        this.casMetadataFolderCache = new Map();
         this.cacheTtlMs = 60 * 1000;
     }
 
@@ -89,6 +95,12 @@ class LazyShareStrmService {
             overwriteExisting,
             false
         );
+        this._scheduleCasMetadataPrewarm(cloud189, {
+            accountId,
+            shareId: shareData.shareInfo.shareId,
+            files: organized.files,
+            resourceName: params.resourceName || shareData.shareInfo.fileName
+        });
 
         const message = `懒转存STRM生成完成，资源: ${shareData.shareInfo.fileName}，文件数: ${mediaEntries.length}`;
         logTaskEvent(message);
@@ -159,6 +171,16 @@ class LazyShareStrmService {
             overwriteExisting,
             true
         );
+        const account = task.account || await this.accountRepo.findOneBy({ id: accountId });
+        if (account) {
+            const cloud189 = Cloud189Service.getInstance(account);
+            this._scheduleCasMetadataPrewarm(cloud189, {
+                accountId,
+                shareId,
+                files: organized.files,
+                resourceName: task.resourceName
+            });
+        }
 
         const message = `任务[${task.resourceName}]懒转存STRM生成完成，文件数: ${mediaEntries.length}`;
         logTaskEvent(message);
@@ -188,12 +210,7 @@ class LazyShareStrmService {
         }
 
         const cloud189 = Cloud189Service.getInstance(account);
-        const targetFolderId = await this._ensureTargetFolder(
-            cloud189,
-            payload.targetFolderId,
-            payload.rootName,
-            payload.relativeDir
-        );
+        const targetFolderId = await this._resolveTransferTargetFolder(cloud189, payload);
         const expectedFileName = payload.isCas
             ? (payload.originalFileName || CasService.getOriginalFileName(payload.fileName))
             : payload.fileName;
@@ -213,6 +230,40 @@ class LazyShareStrmService {
             expiresAt: Date.now() + this.cacheTtlMs
         });
         return latestUrl;
+    }
+
+    async _resolveTransferTargetFolder(cloud189, payload) {
+        const preferredFolderId = String(payload.targetFolderId || '').trim();
+        const preferredFolder = await this._inspectFolder(cloud189, preferredFolderId);
+        if (preferredFolder.exists) {
+            return await this._ensureTargetFolder(
+                cloud189,
+                preferredFolderId,
+                payload.rootName,
+                payload.relativeDir
+            );
+        }
+        if (!preferredFolder.missing) {
+            throw new Error(preferredFolder.message || '获取懒转存目标目录失败');
+        }
+
+        const recoveredTaskFolderId = await this._recoverTaskTargetFolder(cloud189, payload);
+        if (recoveredTaskFolderId) {
+            return await this._ensureTargetFolder(
+                cloud189,
+                recoveredTaskFolderId,
+                payload.rootName,
+                payload.relativeDir
+            );
+        }
+
+        const fallbackFolderId = await this._ensureFallbackTargetFolder(cloud189, payload);
+        return await this._ensureTargetFolder(
+            cloud189,
+            fallbackFolderId,
+            payload.rootName,
+            payload.relativeDir
+        );
     }
 
     async _resolveShare(shareLink, accessCode, cloud189) {
@@ -482,6 +533,75 @@ class LazyShareStrmService {
         return this._normalizeRelativePath(path.join(task.account?.localStrmPrefix || '', taskRelativePath));
     }
 
+    async _inspectFolder(cloud189, folderId) {
+        const normalizedFolderId = String(folderId || '').trim();
+        if (!normalizedFolderId || normalizedFolderId === '-11') {
+            return { exists: true, missing: false, id: '-11' };
+        }
+
+        const folderInfo = await cloud189.listFiles(normalizedFolderId);
+        if (folderInfo?.fileListAO) {
+            return { exists: true, missing: false, id: normalizedFolderId };
+        }
+        const missing = folderInfo?.res_code === 'FileNotFound'
+            || folderInfo?.errorCode === 'FolderNotExist'
+            || folderInfo?.res_message === 'FolderNotExist'
+            || folderInfo?.res_msg === 'FolderNotExist';
+        if (missing) {
+            return { exists: false, missing: true, id: normalizedFolderId };
+        }
+        return {
+            exists: false,
+            missing: false,
+            id: normalizedFolderId,
+            message: folderInfo?.res_msg || folderInfo?.res_message || folderInfo?.errorMsg || '获取目录信息失败'
+        };
+    }
+
+    async _recoverTaskTargetFolder(cloud189, payload) {
+        const taskRepo = this.taskService?.taskRepo;
+        const staleFolderId = String(payload.targetFolderId || '').trim();
+        if (!taskRepo || !staleFolderId) {
+            return '';
+        }
+
+        const task = await taskRepo.findOne({
+            where: {
+                realFolderId: staleFolderId,
+                enableLazyStrm: true
+            }
+        });
+        if (!task) {
+            return '';
+        }
+        if (String(task.accountId || '') !== String(payload.accountId || '')) {
+            return '';
+        }
+        if (String(task.shareId || '') !== String(payload.shareId || '')) {
+            return '';
+        }
+
+        try {
+            await this.taskService._autoCreateFolder(cloud189, task);
+            const recoveredFolderId = String(task.realFolderId || '').trim();
+            if (recoveredFolderId) {
+                logTaskEvent(`懒转存目录已自动恢复: ${staleFolderId} -> ${recoveredFolderId}`);
+                return recoveredFolderId;
+            }
+        } catch (error) {
+            logTaskEvent(`懒转存目录自动恢复失败: ${staleFolderId}, 错误: ${error.message}`);
+        }
+        return '';
+    }
+
+    async _ensureFallbackTargetFolder(cloud189, payload) {
+        const cacheFolderId = await this._ensureChildFolder(cloud189, '-11', '懒转存缓存');
+        const shareFolderName = this._sanitizePathSegment(payload.shareId || payload.rootName || 'unknown');
+        const fallbackFolderId = await this._ensureChildFolder(cloud189, cacheFolderId, shareFolderName || 'unknown');
+        logTaskEvent(`懒转存目标目录不存在，已切换到回退目录: ${payload.targetFolderId || '(空)'} -> ${fallbackFolderId}`);
+        return fallbackFolderId;
+    }
+
     async _ensureTargetFolder(cloud189, baseFolderId, rootName, relativeDir) {
         let currentFolderId = String(baseFolderId || '-11');
         const segments = [];
@@ -523,6 +643,79 @@ class LazyShareStrmService {
         return [payload.accountId, payload.shareId, payload.fileId, targetFolderId, payload.fileName].join(':');
     }
 
+    _getCasMetadataKey(payload = {}) {
+        return [
+            String(payload.accountId || '').trim(),
+            String(payload.shareId || '').trim(),
+            String(payload.fileId || '').trim()
+        ].join(':');
+    }
+
+    _normalizeCasMetadata(casInfo = {}) {
+        const normalized = {
+            name: String(casInfo.name || '').trim(),
+            size: Number(casInfo.size || 0) || 0,
+            md5: String(casInfo.md5 || '').trim().toUpperCase(),
+            sliceMd5: String(casInfo.sliceMd5 || '').trim().toUpperCase()
+        };
+        if (!normalized.name || !normalized.size || !normalized.md5 || !normalized.sliceMd5) {
+            return null;
+        }
+        return normalized;
+    }
+
+    async _getCachedCasMetadata(payload = {}) {
+        return await this.casMetadataCache.get({
+            accountId: payload.accountId,
+            shareId: payload.shareId,
+            fileId: payload.fileId
+        });
+    }
+
+    async _storeCasMetadata(payload = {}, casInfo = {}) {
+        const normalized = this._normalizeCasMetadata(casInfo);
+        if (!normalized) {
+            throw new Error('CAS元数据无效');
+        }
+        return await this.casMetadataCache.set({
+            accountId: payload.accountId,
+            shareId: payload.shareId,
+            fileId: payload.fileId
+        }, normalized);
+    }
+
+    async _resolveCasMetadata(cloud189, payload, options = {}) {
+        const cacheKey = this._getCasMetadataKey(payload);
+        if (!cacheKey || cacheKey === '::') {
+            throw new Error('CAS元数据缺少必要标识');
+        }
+        if (this.casMetadataInflight.has(cacheKey)) {
+            return await this.casMetadataInflight.get(cacheKey);
+        }
+
+        const pending = (async () => {
+            const cached = await this._getCachedCasMetadata(payload);
+            if (cached) {
+                return cached;
+            }
+
+            if (options.casFileId) {
+                const casInfo = await this.casService.downloadAndParseCas(cloud189, options.casFileId);
+                return await this._storeCasMetadata(payload, casInfo);
+            }
+
+            if (options.allowShareTransfer) {
+                const casInfo = await this._downloadCasMetadataViaShareTransfer(cloud189, payload);
+                return await this._storeCasMetadata(payload, casInfo);
+            }
+
+            throw new Error(`未命中CAS元数据缓存: ${payload.fileName || payload.fileId}`);
+        })().finally(() => this.casMetadataInflight.delete(cacheKey));
+
+        this.casMetadataInflight.set(cacheKey, pending);
+        return await pending;
+    }
+
     async _ensureTransferredFile(cloud189, payload, targetFolderId) {
         const transferKey = this._getTransferKey(payload, targetFolderId);
         if (this.transferInflight.has(transferKey)) {
@@ -546,20 +739,14 @@ class LazyShareStrmService {
         const restoreName = payload.originalFileName || CasService.getOriginalFileName(payload.fileName);
         let restoredFile = await this._findFileByName(cloud189, targetFolderId, restoreName);
         if (restoredFile) {
+            this._scheduleCasCleanup(cloud189, targetFolderId, casFile);
             return restoredFile;
         }
 
-        const casInfo = await this.casService.downloadAndParseCas(cloud189, casFile.id);
+        const casInfo = await this._resolveCasMetadata(cloud189, payload, { casFileId: casFile.id });
         await this.casService.restoreFromCas(cloud189, targetFolderId, casInfo, restoreName);
         restoredFile = await this._waitForTransferredFile(cloud189, targetFolderId, restoreName, {}, 30, 1000);
-
-        try {
-            await cloud189.deleteFile(casFile.id, casFile.name);
-            logTaskEvent(`已删除懒转存CAS文件: ${casFile.name}`);
-        } catch (error) {
-            logTaskEvent(`删除懒转存CAS文件失败: ${casFile.name}, 错误: ${error.message}`);
-        }
-
+        this._scheduleCasCleanup(cloud189, targetFolderId, casFile);
         return restoredFile;
     }
 
@@ -587,6 +774,148 @@ class LazyShareStrmService {
         throw new Error(`懒转存完成后未找到目标文件${statusMessage}`);
     }
 
+    _getCasCleanupKey(targetFolderId, casFile) {
+        return [targetFolderId, casFile?.id || '', casFile?.name || ''].join(':');
+    }
+
+    _scheduleCasCleanup(cloud189, targetFolderId, casFile) {
+        if (!casFile?.id) {
+            return;
+        }
+
+        const cleanupKey = this._getCasCleanupKey(targetFolderId, casFile);
+        if (this.cleanupInflight.has(cleanupKey)) {
+            return;
+        }
+
+        const pending = this._deleteTransferredCasFile(cloud189, targetFolderId, casFile)
+            .catch((error) => {
+                logTaskEvent(`删除懒转存CAS文件失败: ${casFile.name}, 错误: ${error.message}`);
+            })
+            .finally(() => this.cleanupInflight.delete(cleanupKey));
+        this.cleanupInflight.set(cleanupKey, pending);
+    }
+
+    _scheduleCasMetadataPrewarm(cloud189, params = {}) {
+        const casFiles = (params.files || []).filter((file) => file?.isCas);
+        if (!casFiles.length) {
+            return;
+        }
+
+        const prewarmKey = `${params.accountId}:${params.shareId}`;
+        if (this.casMetadataPrewarmInflight.has(prewarmKey)) {
+            return;
+        }
+
+        const pending = this._prewarmCasMetadata(cloud189, {
+            accountId: params.accountId,
+            shareId: params.shareId,
+            files: casFiles,
+            resourceName: params.resourceName || ''
+        }).catch((error) => {
+            logTaskEvent(`懒转存CAS元数据预提取失败: ${params.resourceName || params.shareId}, 错误: ${error.message}`);
+        }).finally(() => this.casMetadataPrewarmInflight.delete(prewarmKey));
+        this.casMetadataPrewarmInflight.set(prewarmKey, pending);
+    }
+
+    async _prewarmCasMetadata(cloud189, params = {}) {
+        const casFiles = params.files || [];
+        if (!casFiles.length) {
+            return;
+        }
+
+        let warmed = 0;
+        let skipped = 0;
+        let failed = 0;
+        logTaskEvent(`开始预提取CAS元数据: ${params.resourceName || params.shareId}, 文件数: ${casFiles.length}`);
+        for (const file of casFiles) {
+            const payload = {
+                accountId: params.accountId,
+                shareId: params.shareId,
+                fileId: file.id,
+                fileName: file.sourceFileName || file.name,
+                isCas: true,
+                originalFileName: file.originalFileName || ''
+            };
+
+            try {
+                const cached = await this._getCachedCasMetadata(payload);
+                if (cached) {
+                    skipped++;
+                    continue;
+                }
+                await this._resolveCasMetadata(cloud189, payload, { allowShareTransfer: true });
+                warmed++;
+            } catch (error) {
+                failed++;
+                logTaskEvent(`CAS元数据预提取失败: ${payload.fileName}, 错误: ${error.message}`);
+            }
+        }
+        logTaskEvent(`CAS元数据预提取完成: ${params.resourceName || params.shareId}, 成功: ${warmed}, 跳过: ${skipped}, 失败: ${failed}`);
+    }
+
+    async _ensureCasMetadataFolder(cloud189, payload = {}) {
+        const accountId = String(payload.accountId || '').trim() || 'unknown';
+        const shareId = String(payload.shareId || '').trim() || 'unknown';
+        const cacheKey = `${accountId}:${shareId}`;
+        const cachedFolderId = this.casMetadataFolderCache.get(cacheKey);
+        if (cachedFolderId) {
+            const inspectResult = await this._inspectFolder(cloud189, cachedFolderId);
+            if (inspectResult.exists) {
+                return cachedFolderId;
+            }
+            this.casMetadataFolderCache.delete(cacheKey);
+        }
+
+        const rootFolderId = await this._ensureChildFolder(cloud189, '-11', '懒转存元数据');
+        const shareFolderId = await this._ensureChildFolder(cloud189, rootFolderId, this._sanitizePathSegment(shareId) || 'unknown');
+        this.casMetadataFolderCache.set(cacheKey, shareFolderId);
+        return shareFolderId;
+    }
+
+    async _downloadCasMetadataViaShareTransfer(cloud189, payload) {
+        const metadataFolderId = await this._ensureCasMetadataFolder(cloud189, payload);
+        const transferredCasFile = await this._ensureMetadataTransferredCasFile(cloud189, payload, metadataFolderId);
+        const casInfo = await this.casService.downloadAndParseCas(cloud189, transferredCasFile.id);
+        this._scheduleCasCleanup(cloud189, metadataFolderId, transferredCasFile);
+        return casInfo;
+    }
+
+    async _ensureMetadataTransferredCasFile(cloud189, payload, targetFolderId) {
+        const transferKey = `metadata:${this._getTransferKey(payload, targetFolderId)}`;
+        if (this.transferInflight.has(transferKey)) {
+            return await this.transferInflight.get(transferKey);
+        }
+
+        const pending = (async () => {
+            let transferredCasFile = await this._findFileByName(cloud189, targetFolderId, payload.fileName);
+            if (transferredCasFile) {
+                return transferredCasFile;
+            }
+
+            const submitResult = await this._submitShareSaveTask(cloud189, payload, targetFolderId);
+            return await this._waitForTransferredFile(cloud189, targetFolderId, payload.fileName, submitResult, 30, 1000);
+        })().finally(() => this.transferInflight.delete(transferKey));
+
+        this.transferInflight.set(transferKey, pending);
+        return await pending;
+    }
+
+    async _deleteTransferredCasFile(cloud189, targetFolderId, casFile, maxAttempts = 30, intervalMs = 1000) {
+        await cloud189.deleteFile(casFile.id, casFile.name);
+        for (let index = 0; index < maxAttempts; index++) {
+            const remainFile = await this._findFileByName(cloud189, targetFolderId, casFile.name);
+            if (!remainFile) {
+                logTaskEvent(`已删除懒转存CAS文件: ${casFile.name}`);
+                return;
+            }
+            if (index < maxAttempts - 1) {
+                await new Promise((resolve) => setTimeout(resolve, intervalMs));
+            }
+        }
+        throw new Error(`CAS文件仍存在于目标目录: ${casFile.name}`);
+    }
+
     async _syncShareSaveTask(cloud189, taskId, batchTaskDto) {
         const task = await cloud189.checkTaskStatus(taskId, batchTaskDto);
         if (!task) {
@@ -594,6 +923,10 @@ class LazyShareStrmService {
         }
 
         const taskStatus = Number(task.taskStatus);
+        if (taskStatus === -1) {
+            const errorMessage = task.errorCode || task.res_msg || task.res_message || task.errorMsg || '懒转存任务失败';
+            throw new Error(`懒转存任务失败: ${errorMessage}`);
+        }
         if (taskStatus === 2) {
             const conflictTaskInfo = await cloud189.getConflictTaskInfo(taskId, batchTaskDto);
             const taskInfos = conflictTaskInfo?.taskInfos || [];
