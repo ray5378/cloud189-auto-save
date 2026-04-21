@@ -227,8 +227,18 @@ class StrmService {
         );
 
         if (compare) {
+            // 收窄 compare 范围: 仅在本次 files 实际涉及的子目录内做清理,
+            // 避免同 targetRoot 下的兄弟目录(例如多季任务 Season 01 / Season 02)被误删
+            const coveredDirs = new Set(
+                mediaFiles.map(file => this._normalizeRelativePath(file.relativeDir || ''))
+            );
             const strmFiles = await this._listStrmFilesRecursive(normalizedTargetRoot);
             for (const file of strmFiles) {
+                const dirName = path.dirname(file.relativePath);
+                const normalizedDir = dirName === '.' ? '' : this._normalizeRelativePath(dirName);
+                if (!coveredDirs.has(normalizedDir)) {
+                    continue;
+                }
                 if (!expectedStrmPaths.has(file.relativePath)) {
                     await this.delete(file.path);
                 }
