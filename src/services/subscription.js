@@ -1,12 +1,27 @@
 const cloud189Utils = require('../utils/Cloud189Utils');
 const { Cloud189Service } = require('./cloud189');
+const ConfigService = require('./ConfigService');
 const got = require('got');
 
+const DEFAULT_SUBSCRIPTION_AUTO_TASK_CONFIG = {
+    accountId: '',
+    targetFolderId: '',
+    targetFolder: '',
+    taskGroup: '订阅任务',
+    remark: '订阅自动任务',
+    enableCron: false,
+    cronExpression: '',
+    enableTaskScraper: false,
+    enableLazyStrm: true,
+    enableOrganizer: true
+};
+
 class SubscriptionService {
-    constructor(subscriptionRepo, resourceRepo, accountRepo) {
+    constructor(subscriptionRepo, resourceRepo, accountRepo, taskService = null) {
         this.subscriptionRepo = subscriptionRepo;
         this.resourceRepo = resourceRepo;
         this.accountRepo = accountRepo;
+        this.taskService = taskService;
     }
 
     async listSubscriptions() {
@@ -27,9 +42,14 @@ class SubscriptionService {
     async createSubscription(data) {
         const uuid = this._normalizeSubscriptionUuid(data.uuid);
         const selectedShareCodes = this._normalizeSelectedShareCodes(data.selectedShareCodes);
+        const autoCreateTasks = !!data.autoCreateTasks;
+        const autoTaskConfig = this._normalizeAutoTaskConfig(data.autoTaskConfig);
         const exist = await this.subscriptionRepo.findOneBy({ uuid });
         if (exist) {
             throw new Error('该 UUID 已存在');
+        }
+        if (autoCreateTasks) {
+            this._validateAutoTaskConfig(autoTaskConfig);
         }
         const subscription = this.subscriptionRepo.create({
             uuid,
@@ -42,23 +62,39 @@ class SubscriptionService {
             invalidResourceCount: 0,
             availableAccountCount: 0,
             totalAccountCount: 0,
-            selectedShareCodes: JSON.stringify(selectedShareCodes)
+            selectedShareCodes: JSON.stringify(selectedShareCodes),
+            autoCreateTasks,
+            autoTaskConfig: JSON.stringify(autoTaskConfig)
         });
-        const savedSubscription = await this.subscriptionRepo.save(subscription);
+        let savedSubscription = await this.subscriptionRepo.save(subscription);
 
         const syncResult = await this._syncRemoteResources(savedSubscription);
+        let autoTaskSummary = this._createEmptyAutoTaskSummary();
+        if (autoCreateTasks) {
+            const resources = await this.resourceRepo.find({
+                where: { subscriptionId: savedSubscription.id },
+                order: { id: 'ASC' }
+            });
+            autoTaskSummary = await this._autoCreateTasksForSubscription(savedSubscription, resources);
+        }
         if (syncResult?.synced) {
-            savedSubscription.lastRefreshMessage = syncResult.totalRemoteCount > 0
+            savedSubscription.lastRefreshMessage = this._joinSummaryParts(
+                syncResult.totalRemoteCount > 0
                 ? (
                     syncResult.selectionActive
                         ? `已按选择同步 ${syncResult.matchedRemoteCount} / ${syncResult.totalRemoteCount} 个订阅资源，待校验`
                         : `已同步 ${syncResult.totalRemoteCount} 个订阅资源，待校验`
                 )
-                : '订阅已创建，但远程订阅暂无资源';
-            await this.subscriptionRepo.save(savedSubscription);
+                : '订阅已创建，但远程订阅暂无资源',
+                this._buildAutoTaskSummary(autoTaskSummary)
+            );
+            savedSubscription = await this.subscriptionRepo.save(savedSubscription);
         }
 
-        return this._serializeSubscription(savedSubscription);
+        return {
+            ...this._serializeSubscription(savedSubscription),
+            autoTaskSummary
+        };
     }
 
     async previewSubscriptionCreation(data) {
@@ -75,6 +111,8 @@ class SubscriptionService {
 
         const looksLikeUuid = /^[a-zA-Z0-9_-]{6,}$/.test(uuid);
         const subscriptionStats = await this._fetchRemoteResourceSummary(uuid);
+        const defaultAutoTaskConfig = this._normalizeAutoTaskConfig();
+        const autoTaskReadyState = this._getAutoTaskReadyState(defaultAutoTaskConfig);
         const canCreate = !exist && normalizedAccounts.length > 0 && looksLikeUuid;
         let recommendation = '';
         if (exist) {
@@ -109,7 +147,106 @@ class SubscriptionService {
             } : null,
             remoteResourceCount: subscriptionStats?.count ?? null,
             remoteSubscriptionDetected: !!subscriptionStats?.available,
-            recommendation
+            recommendation,
+            defaultAutoTaskConfig,
+            autoTaskReady: autoTaskReadyState.ready,
+            autoTaskReadyMessage: autoTaskReadyState.message
+        };
+    }
+
+    async previewAutoTaskCreation(data) {
+        const uuid = this._normalizeSubscriptionUuid(data.uuid);
+        const selectedShareCodes = this._normalizeSelectedShareCodes(data.selectedShareCodes);
+        const taskConfig = this._normalizeAutoTaskConfig(data.autoTaskConfig);
+        const autoTaskReadyState = this._getAutoTaskReadyState(taskConfig);
+        let remoteData = { totalRemoteCount: 0, fileList: [] };
+        if (uuid) {
+            try {
+                remoteData = await this._fetchAllRemoteResourceEntries(uuid);
+            } catch (error) {
+                return {
+                    canAutoCreateTasks: false,
+                    estimatedResourceCount: 0,
+                    estimatedTaskCount: 0,
+                    failedEstimateCount: 0,
+                    taskConfig,
+                    warningMessages: [],
+                    recommendation: error.message
+                };
+            }
+        }
+        const matchedRemoteEntries = this._filterRemoteEntriesBySelection(remoteData.fileList, new Set(selectedShareCodes));
+
+        if (!uuid) {
+            return {
+                canAutoCreateTasks: false,
+                estimatedResourceCount: 0,
+                estimatedTaskCount: 0,
+                failedEstimateCount: 0,
+                taskConfig,
+                warningMessages: [],
+                recommendation: '请先填写有效的 UUID。'
+            };
+        }
+
+        if (!autoTaskReadyState.ready) {
+            return {
+                canAutoCreateTasks: false,
+                estimatedResourceCount: matchedRemoteEntries.length,
+                estimatedTaskCount: 0,
+                failedEstimateCount: 0,
+                taskConfig,
+                warningMessages: [],
+                recommendation: autoTaskReadyState.message
+            };
+        }
+
+        if (!this.taskService) {
+            return {
+                canAutoCreateTasks: false,
+                estimatedResourceCount: matchedRemoteEntries.length,
+                estimatedTaskCount: 0,
+                failedEstimateCount: 0,
+                taskConfig,
+                warningMessages: [],
+                recommendation: '任务服务未初始化，暂时无法预估。'
+            };
+        }
+
+        let estimatedTaskCount = 0;
+        const warningMessages = [];
+        for (const entry of matchedRemoteEntries) {
+            const item = this._buildRemoteResourceItem(entry);
+            if (!item.shareLink) {
+                continue;
+            }
+            try {
+                const result = await this.taskService.estimateTaskCount({
+                    accountId: taskConfig.accountId,
+                    shareLink: item.shareLink,
+                    accessCode: '',
+                    selectedFolders: []
+                });
+                estimatedTaskCount += Number(result?.taskCount || 0);
+            } catch (error) {
+                warningMessages.push(`${item.title}: ${error.message}`);
+            }
+        }
+
+        const summaryText = matchedRemoteEntries.length
+            ? `预计会自动创建 ${estimatedTaskCount} 个任务，覆盖 ${matchedRemoteEntries.length} 个订阅资源。`
+            : '当前没有可用于自动建任务的订阅资源。';
+
+        return {
+            canAutoCreateTasks: true,
+            estimatedResourceCount: matchedRemoteEntries.length,
+            estimatedTaskCount,
+            failedEstimateCount: warningMessages.length,
+            taskConfig,
+            warningMessages: warningMessages.slice(0, 5),
+            recommendation: warningMessages.length > 0
+                ? `${summaryText} 其中有 ${warningMessages.length} 个资源暂时无法完成预估。`
+                : summaryText
         };
     }
 
@@ -139,6 +276,7 @@ class SubscriptionService {
             throw new Error('订阅不存在');
         }
         let shouldSyncResources = false;
+        let shouldAttemptAutoCreate = false;
         if (updates.uuid !== undefined) {
             const nextUuid = this._normalizeSubscriptionUuid(updates.uuid);
             const exist = await this.subscriptionRepo.findOneBy({ uuid: nextUuid });
@@ -163,8 +301,24 @@ class SubscriptionService {
             shouldSyncResources = shouldSyncResources || subscription.selectedShareCodes !== serializedSelectedShareCodes;
             subscription.selectedShareCodes = serializedSelectedShareCodes;
         }
+        if (updates.autoCreateTasks !== undefined) {
+            subscription.autoCreateTasks = !!updates.autoCreateTasks;
+            shouldAttemptAutoCreate = shouldAttemptAutoCreate || subscription.autoCreateTasks;
+        }
+        if (updates.autoTaskConfig !== undefined) {
+            const normalizedAutoTaskConfig = this._normalizeAutoTaskConfig(updates.autoTaskConfig);
+            if (subscription.autoCreateTasks) {
+                this._validateAutoTaskConfig(normalizedAutoTaskConfig);
+            }
+            subscription.autoTaskConfig = JSON.stringify(normalizedAutoTaskConfig);
+            shouldAttemptAutoCreate = true;
+        }
+        if (subscription.autoCreateTasks && (updates.autoCreateTasks !== undefined || updates.autoTaskConfig !== undefined)) {
+            subscription.autoTaskConfig = JSON.stringify(this._validateAutoTaskConfig(subscription.autoTaskConfig));
+        }
 
         let savedSubscription = await this.subscriptionRepo.save(subscription);
+        let autoTaskSummary = this._createEmptyAutoTaskSummary();
         if (shouldSyncResources) {
             const syncResult = await this._syncRemoteResources(savedSubscription);
             await this._refreshSubscriptionSummary(savedSubscription.id);
@@ -173,8 +327,18 @@ class SubscriptionService {
                 savedSubscription = await this.subscriptionRepo.save(savedSubscription);
             }
         }
+        if (savedSubscription.autoCreateTasks && (shouldSyncResources || shouldAttemptAutoCreate)) {
+            const resources = await this.resourceRepo.find({
+                where: { subscriptionId: savedSubscription.id },
+                order: { id: 'ASC' }
+            });
+            autoTaskSummary = await this._autoCreateTasksForSubscription(savedSubscription, resources);
+        }
 
-        return this._serializeSubscription(savedSubscription);
+        return {
+            ...this._serializeSubscription(savedSubscription),
+            autoTaskSummary
+        };
     }
 
     async deleteSubscription(id) {
@@ -220,7 +384,10 @@ class SubscriptionService {
             verifyStatus: 'unknown',
             lastVerifyError: '',
             availableAccountIds: '',
-            verifyDetails: ''
+            verifyDetails: '',
+            autoTaskTaskCount: 0,
+            autoTaskTaskIds: '',
+            autoTaskLastError: ''
         });
         const savedResource = await this.resourceRepo.save(resource);
         await this.refreshSubscription(subscriptionId);
@@ -250,6 +417,7 @@ class SubscriptionService {
         let validResourceCount = 0;
         let invalidResourceCount = 0;
         const failedResources = [];
+        let autoTaskSummary = this._createEmptyAutoTaskSummary();
 
         for (const resource of resources) {
             const result = await this._validateResourceAgainstAccounts(resource, accounts);
@@ -261,6 +429,9 @@ class SubscriptionService {
                 failedResources.push(`${resource.title}: ${result.lastVerifyError || '校验失败'}`);
             }
         }
+        if (subscription.autoCreateTasks) {
+            autoTaskSummary = await this._autoCreateTasksForSubscription(subscription, resources);
+        }
 
         subscription.lastRefreshTime = new Date();
         subscription.validResourceCount = validResourceCount;
@@ -268,17 +439,25 @@ class SubscriptionService {
         subscription.availableAccountCount = allAvailableAccountIds.size;
         subscription.totalAccountCount = accounts.length;
         const syncSummary = this._buildSyncSummary(syncResult);
+        const autoTaskSummaryText = this._buildAutoTaskSummary(autoTaskSummary);
         if (!resources.length) {
             subscription.lastRefreshStatus = 'success';
-            subscription.lastRefreshMessage = syncSummary
-                ? `${syncSummary} | 暂无订阅资源，已更新账号状态`
-                : '暂无订阅资源，已更新账号状态';
+            subscription.lastRefreshMessage = this._joinSummaryParts(
+                syncSummary ? `${syncSummary} | 暂无订阅资源，已更新账号状态` : '暂无订阅资源，已更新账号状态',
+                autoTaskSummaryText
+            );
         } else if (invalidResourceCount > 0) {
             subscription.lastRefreshStatus = validResourceCount > 0 ? 'warning' : 'failed';
-            subscription.lastRefreshMessage = [syncSummary, failedResources.slice(0, 3).join(' | ')].filter(Boolean).join(' | ');
+            subscription.lastRefreshMessage = this._joinSummaryParts(
+                [syncSummary, failedResources.slice(0, 3).join(' | ')].filter(Boolean).join(' | '),
+                autoTaskSummaryText
+            );
         } else {
             subscription.lastRefreshStatus = 'success';
-            subscription.lastRefreshMessage = [syncSummary, `全部 ${validResourceCount} 个资源校验成功`].filter(Boolean).join(' | ');
+            subscription.lastRefreshMessage = this._joinSummaryParts(
+                [syncSummary, `全部 ${validResourceCount} 个资源校验成功`].filter(Boolean).join(' | '),
+                autoTaskSummaryText
+            );
         }
         await this.subscriptionRepo.save(subscription);
         return {
@@ -288,7 +467,8 @@ class SubscriptionService {
             availableAccountCount: allAvailableAccountIds.size,
             totalAccountCount: accounts.length,
             failedResources,
-            syncResult
+            syncResult,
+            autoTaskSummary
         };
     }
 
@@ -417,7 +597,9 @@ class SubscriptionService {
             return {
                 ...resource,
                 availableAccounts,
-                verifyDetails
+                verifyDetails,
+                autoTaskTaskIds: this._normalizeJsonArray(resource.autoTaskTaskIds),
+                autoTaskTaskCount: Number(resource.autoTaskTaskCount || 0)
             };
         });
     }
@@ -426,8 +608,110 @@ class SubscriptionService {
         return {
             ...subscription,
             ...(resourceCount === null ? {} : { resourceCount }),
-            selectedShareCodes: this._normalizeSelectedShareCodes(subscription?.selectedShareCodes)
+            selectedShareCodes: this._normalizeSelectedShareCodes(subscription?.selectedShareCodes),
+            autoCreateTasks: !!subscription?.autoCreateTasks,
+            autoTaskConfig: this._normalizeAutoTaskConfig(subscription?.autoTaskConfig)
         };
+    }
+
+    _normalizeAutoTaskConfig(input) {
+        let values = input;
+        if (typeof input === 'string') {
+            const rawText = input.trim();
+            if (!rawText) {
+                values = {};
+            } else {
+                try {
+                    values = JSON.parse(rawText);
+                } catch (error) {
+                    values = {};
+                }
+            }
+        }
+
+        const autoCreateConfig = ConfigService.getConfigValue('task.autoCreate', {});
+        const merged = {
+            ...DEFAULT_SUBSCRIPTION_AUTO_TASK_CONFIG,
+            accountId: String(autoCreateConfig.accountId || '').trim(),
+            targetFolderId: String(autoCreateConfig.targetFolderId || '').trim(),
+            targetFolder: String(autoCreateConfig.targetFolder || '').trim(),
+            ...(values && typeof values === 'object' ? values : {})
+        };
+
+        return {
+            accountId: String(merged.accountId || '').trim(),
+            targetFolderId: String(merged.targetFolderId || '').trim(),
+            targetFolder: String(merged.targetFolder || '').trim(),
+            taskGroup: String(merged.taskGroup || DEFAULT_SUBSCRIPTION_AUTO_TASK_CONFIG.taskGroup).trim() || DEFAULT_SUBSCRIPTION_AUTO_TASK_CONFIG.taskGroup,
+            remark: String(merged.remark || DEFAULT_SUBSCRIPTION_AUTO_TASK_CONFIG.remark).trim() || DEFAULT_SUBSCRIPTION_AUTO_TASK_CONFIG.remark,
+            enableCron: !!merged.enableCron,
+            cronExpression: String(merged.cronExpression || '').trim(),
+            enableTaskScraper: !!merged.enableTaskScraper,
+            enableLazyStrm: !!merged.enableLazyStrm,
+            enableOrganizer: !!merged.enableOrganizer
+        };
+    }
+
+    _validateAutoTaskConfig(taskConfig) {
+        const normalizedTaskConfig = this._normalizeAutoTaskConfig(taskConfig);
+        if (!normalizedTaskConfig.accountId) {
+            throw new Error('请先在系统设置中配置自动追剧默认账号');
+        }
+        if (!normalizedTaskConfig.targetFolderId || !normalizedTaskConfig.targetFolder) {
+            throw new Error('请先在系统设置中配置自动追剧默认保存目录');
+        }
+        if (normalizedTaskConfig.enableCron && !normalizedTaskConfig.cronExpression) {
+            throw new Error('启用定时任务后必须填写 Cron 表达式');
+        }
+        return normalizedTaskConfig;
+    }
+
+    _getAutoTaskReadyState(taskConfig) {
+        try {
+            this._validateAutoTaskConfig(taskConfig);
+            return { ready: true, message: '自动建任务配置已就绪。' };
+        } catch (error) {
+            return { ready: false, message: error.message };
+        }
+    }
+
+    _normalizeJsonArray(input) {
+        if (!input) {
+            return [];
+        }
+        try {
+            const parsed = typeof input === 'string' ? JSON.parse(input) : input;
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (error) {
+            return [];
+        }
+    }
+
+    _createEmptyAutoTaskSummary() {
+        return {
+            createdTaskCount: 0,
+            createdResourceCount: 0,
+            failedResources: [],
+            skippedResourceCount: 0
+        };
+    }
+
+    _buildAutoTaskSummary(autoTaskSummary) {
+        if (!autoTaskSummary) {
+            return '';
+        }
+        const summaryParts = [];
+        if (autoTaskSummary.createdTaskCount > 0) {
+            summaryParts.push(`自动创建 ${autoTaskSummary.createdTaskCount} 个任务`);
+        }
+        if (autoTaskSummary.failedResources?.length) {
+            summaryParts.push(`自动建任务失败 ${autoTaskSummary.failedResources.length} 个资源`);
+        }
+        return summaryParts.join('，');
+    }
+
+    _joinSummaryParts(...parts) {
+        return parts.filter(Boolean).join(' | ');
     }
 
     _normalizeSelectedShareCodes(input) {
@@ -628,6 +912,23 @@ class SubscriptionService {
         }
     }
 
+    async _fetchAllRemoteResourceEntries(uuid) {
+        const firstPage = await this._fetchRemoteResourcePage(uuid, 1, 200);
+        const remoteEntries = [...firstPage.fileList];
+        const totalRemoteCount = firstPage.totalRemoteCount;
+        const totalPages = totalRemoteCount > 0 ? Math.ceil(totalRemoteCount / 200) : 0;
+
+        for (let pageNum = 2; pageNum <= totalPages; pageNum += 1) {
+            const pageData = await this._fetchRemoteResourcePage(uuid, pageNum, 200);
+            remoteEntries.push(...pageData.fileList);
+        }
+
+        return {
+            totalRemoteCount,
+            fileList: remoteEntries
+        };
+    }
+
     async _fetchRemoteResourcePage(uuid, pageNum = 1, pageSize = 200, keyword = '') {
         const response = await got('https://api.cloud.189.cn/open/share/getUpResourceShare.action', {
             method: 'GET',
@@ -679,6 +980,13 @@ class SubscriptionService {
         };
     }
 
+    _filterRemoteEntriesBySelection(remoteEntries, selectedShareCodeSet) {
+        if (!selectedShareCodeSet?.size) {
+            return remoteEntries;
+        }
+        return remoteEntries.filter(entry => selectedShareCodeSet.has(String(entry?.accessURL || '').trim()));
+    }
+
     _buildResourceIdentityKey(shareLink) {
         try {
             const shareCode = cloud189Utils.parseShareCode(String(shareLink || '').trim());
@@ -718,6 +1026,66 @@ class SubscriptionService {
         return resourcesToDelete.length;
     }
 
+    async _autoCreateTasksForSubscription(subscription, resources) {
+        const summary = this._createEmptyAutoTaskSummary();
+        if (!subscription?.autoCreateTasks || !this.taskService || !Array.isArray(resources) || resources.length === 0) {
+            return summary;
+        }
+
+        let taskConfig;
+        try {
+            taskConfig = this._validateAutoTaskConfig(subscription.autoTaskConfig);
+        } catch (error) {
+            summary.failedResources.push(`自动建任务配置错误: ${error.message}`);
+            return summary;
+        }
+        for (const resource of resources) {
+            if (resource.autoTaskCreatedAt || Number(resource.autoTaskTaskCount || 0) > 0) {
+                summary.skippedResourceCount += 1;
+                continue;
+            }
+
+            try {
+                const tasks = await this.taskService.createTask({
+                    accountId: taskConfig.accountId,
+                    shareLink: resource.shareLink,
+                    accessCode: resource.accessCode || '',
+                    totalEpisodes: 0,
+                    targetFolderId: taskConfig.targetFolderId,
+                    targetFolder: taskConfig.targetFolder,
+                    matchPattern: '',
+                    matchOperator: '',
+                    matchValue: '',
+                    overwriteFolder: 0,
+                    remark: taskConfig.remark,
+                    taskGroup: taskConfig.taskGroup,
+                    enableCron: taskConfig.enableCron,
+                    cronExpression: taskConfig.cronExpression,
+                    selectedFolders: [],
+                    sourceRegex: '',
+                    targetRegex: '',
+                    taskName: resource.title || resource.shareFileName || '',
+                    enableTaskScraper: taskConfig.enableTaskScraper,
+                    enableLazyStrm: taskConfig.enableLazyStrm,
+                    enableOrganizer: taskConfig.enableOrganizer
+                });
+                resource.autoTaskCreatedAt = new Date();
+                resource.autoTaskTaskCount = tasks?.length || 0;
+                resource.autoTaskTaskIds = JSON.stringify((tasks || []).map(task => task.id));
+                resource.autoTaskLastError = '';
+                summary.createdTaskCount += tasks?.length || 0;
+                summary.createdResourceCount += 1;
+            } catch (error) {
+                resource.autoTaskLastError = error.message;
+                summary.failedResources.push(`${resource.title}: ${error.message}`);
+            }
+
+            await this.resourceRepo.save(resource);
+        }
+
+        return summary;
+    }
+
     async _syncRemoteResources(subscription) {
         const uuid = String(subscription?.uuid || '').trim();
         if (!uuid) {
@@ -733,9 +1101,9 @@ class SubscriptionService {
         }
         const selectedShareCodeSet = this._getSelectedShareCodeSet(subscription);
 
-        let firstPage = null;
+        let remoteData = null;
         try {
-            firstPage = await this._fetchRemoteResourcePage(uuid, 1, 200);
+            remoteData = await this._fetchAllRemoteResourceEntries(uuid);
         } catch (error) {
             return {
                 synced: false,
@@ -749,17 +1117,9 @@ class SubscriptionService {
             };
         }
 
-        const remoteEntries = [...firstPage.fileList];
-        const totalRemoteCount = firstPage.totalRemoteCount;
-        const totalPages = totalRemoteCount > 0 ? Math.ceil(totalRemoteCount / 200) : 0;
-
-        for (let pageNum = 2; pageNum <= totalPages; pageNum += 1) {
-            const pageData = await this._fetchRemoteResourcePage(uuid, pageNum, 200);
-            remoteEntries.push(...pageData.fileList);
-        }
-        const matchedRemoteEntries = selectedShareCodeSet.size > 0
-            ? remoteEntries.filter(entry => selectedShareCodeSet.has(String(entry?.accessURL || '').trim()))
-            : remoteEntries;
+        const remoteEntries = remoteData.fileList;
+        const totalRemoteCount = remoteData.totalRemoteCount;
+        const matchedRemoteEntries = this._filterRemoteEntriesBySelection(remoteEntries, selectedShareCodeSet);
 
         const existingResources = await this.resourceRepo.find({
             where: { subscriptionId: subscription.id }
@@ -801,7 +1161,10 @@ class SubscriptionService {
                     verifyStatus: 'unknown',
                     lastVerifyError: '',
                     availableAccountIds: '',
-                    verifyDetails: ''
+                    verifyDetails: '',
+                    autoTaskTaskCount: 0,
+                    autoTaskTaskIds: '',
+                    autoTaskLastError: ''
                 }));
                 createdCount += 1;
                 continue;

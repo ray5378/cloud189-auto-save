@@ -475,7 +475,7 @@ AppDataSource.initialize().then(async () => {
     const strmConfigRepo = AppDataSource.getRepository(StrmConfig);
     const taskService = new TaskService(taskRepo, accountRepo);
     const organizerService = new OrganizerService(taskService, taskRepo);
-    const subscriptionService = new SubscriptionService(subscriptionRepo, subscriptionResourceRepo, accountRepo);
+    const subscriptionService = new SubscriptionService(subscriptionRepo, subscriptionResourceRepo, accountRepo, taskService);
     const strmConfigService = new StrmConfigService(strmConfigRepo, accountRepo, subscriptionRepo, subscriptionResourceRepo);
     const streamProxyService = new StreamProxyService(accountRepo);
     const lazyShareStrmService = new LazyShareStrmService(accountRepo, taskService);
@@ -1257,6 +1257,15 @@ AppDataSource.initialize().then(async () => {
         try {
             const resources = await subscriptionService.listRemoteSubscriptionResources(req.query);
             res.json({ success: true, data: resources });
+        } catch (error) {
+            res.json({ success: false, error: error.message });
+        }
+    });
+
+    app.post('/api/subscriptions/task-preview', async (req, res) => {
+        try {
+            const preview = await subscriptionService.previewAutoTaskCreation(req.body || {});
+            res.json({ success: true, data: preview });
         } catch (error) {
             res.json({ success: false, error: error.message });
         }

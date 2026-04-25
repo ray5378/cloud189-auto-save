@@ -10,6 +10,8 @@ interface Subscription {
   remark: string | null;
   enabled: boolean;
   selectedShareCodes?: string[];
+  autoCreateTasks?: boolean;
+  autoTaskConfig?: AutoTaskConfig;
   resourceCount: number;
   validResourceCount: number;
   lastRefreshStatus: 'success' | 'warning' | 'failed' | 'unknown';
@@ -17,6 +19,35 @@ interface Subscription {
   lastRefreshTime: string | null;
   availableAccountCount: number;
   totalAccountCount: number;
+}
+
+interface AutoTaskConfig {
+  accountId: string;
+  targetFolderId: string;
+  targetFolder: string;
+  taskGroup: string;
+  remark: string;
+  enableCron: boolean;
+  cronExpression: string;
+  enableTaskScraper: boolean;
+  enableLazyStrm: boolean;
+  enableOrganizer: boolean;
+}
+
+interface AutoTaskPreview {
+  canAutoCreateTasks: boolean;
+  estimatedResourceCount: number;
+  estimatedTaskCount: number;
+  failedEstimateCount: number;
+  recommendation: string;
+  taskConfig: AutoTaskConfig;
+  warningMessages: string[];
+}
+
+interface AutoTaskSummary {
+  createdTaskCount: number;
+  createdResourceCount: number;
+  failedResources: string[];
 }
 
 interface ResourceAccount {
@@ -62,6 +93,9 @@ interface PreviewInfo {
   remoteResourceCount?: number | null;
   remoteSubscriptionDetected?: boolean;
   recommendation: string;
+  defaultAutoTaskConfig?: AutoTaskConfig;
+  autoTaskReady?: boolean;
+  autoTaskReadyMessage?: string;
 }
 
 interface RemoteSubscriptionResource {
@@ -100,6 +134,29 @@ const normalizeShareCodes = (values: string[] = []) => Array.from(new Set(
     .filter(Boolean)
 ));
 
+const DEFAULT_AUTO_TASK_CONFIG: AutoTaskConfig = {
+  accountId: '',
+  targetFolderId: '',
+  targetFolder: '',
+  taskGroup: '订阅任务',
+  remark: '订阅自动任务',
+  enableCron: false,
+  cronExpression: '',
+  enableTaskScraper: false,
+  enableLazyStrm: true,
+  enableOrganizer: true
+};
+
+const createInitialSubscriptionFormData = (autoTaskConfig: AutoTaskConfig = DEFAULT_AUTO_TASK_CONFIG) => ({
+  uuid: '',
+  name: '',
+  remark: '',
+  enabled: true,
+  selectedShareCodes: [] as string[],
+  autoCreateTasks: false,
+  autoTaskConfig
+});
+
 const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,14 +166,11 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
   // Subscription Modal State
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
   const [editingSub, setEditingSub] = useState<Subscription | null>(null);
-  const [subFormData, setSubFormData] = useState({
-    uuid: '',
-    name: '',
-    remark: '',
-    enabled: true,
-    selectedShareCodes: [] as string[]
-  });
+  const [defaultAutoTaskConfig, setDefaultAutoTaskConfig] = useState<AutoTaskConfig>(DEFAULT_AUTO_TASK_CONFIG);
+  const [subFormData, setSubFormData] = useState(() => createInitialSubscriptionFormData(DEFAULT_AUTO_TASK_CONFIG));
   const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
+  const [autoTaskPreview, setAutoTaskPreview] = useState<AutoTaskPreview | null>(null);
+  const [autoTaskPreviewLoading, setAutoTaskPreviewLoading] = useState(false);
   const [isRemoteSelectorOpen, setIsRemoteSelectorOpen] = useState(false);
   const [remoteSelectorLoading, setRemoteSelectorLoading] = useState(false);
   const [remoteSelectorItems, setRemoteSelectorItems] = useState<RemoteSubscriptionResource[]>([]);
@@ -170,9 +224,36 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
     }
   };
 
+  const fetchDefaultAutoTaskConfig = async () => {
+    try {
+      const response = await fetch('/api/settings');
+      const data = await response.json();
+      if (!data.success) {
+        return;
+      }
+      const taskAutoCreate = data.data?.task?.autoCreate || {};
+      setDefaultAutoTaskConfig(prev => ({
+        ...prev,
+        accountId: String(taskAutoCreate.accountId || '').trim(),
+        targetFolderId: String(taskAutoCreate.targetFolderId || '').trim(),
+        targetFolder: String(taskAutoCreate.targetFolder || '').trim()
+      }));
+    } catch (error) {
+      console.error('Failed to fetch auto task defaults:', error);
+    }
+  };
+
   useEffect(() => {
     fetchSubscriptions();
+    fetchDefaultAutoTaskConfig();
   }, []);
+
+  useEffect(() => {
+    if (isSubModalOpen || editingSub) {
+      return;
+    }
+    setSubFormData(createInitialSubscriptionFormData(defaultAutoTaskConfig));
+  }, [defaultAutoTaskConfig, isSubModalOpen, editingSub]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -216,6 +297,48 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
     };
   }, [openSubscriptionMenuId]);
 
+  useEffect(() => {
+    if (!isSubModalOpen || !subFormData.autoCreateTasks || !subFormData.uuid.trim()) {
+      setAutoTaskPreview(null);
+      setAutoTaskPreviewLoading(false);
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      setAutoTaskPreviewLoading(true);
+      try {
+        const response = await fetch('/api/subscriptions/task-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uuid: subFormData.uuid.trim(),
+            selectedShareCodes: subFormData.selectedShareCodes,
+            autoTaskConfig: subFormData.autoTaskConfig
+          })
+        });
+        const data = await response.json();
+        if (data.success) {
+          setAutoTaskPreview(data.data);
+        } else {
+          setAutoTaskPreview(null);
+        }
+      } catch (error) {
+        console.error('Auto task preview failed:', error);
+        setAutoTaskPreview(null);
+      } finally {
+        setAutoTaskPreviewLoading(false);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    isSubModalOpen,
+    subFormData.autoCreateTasks,
+    subFormData.uuid,
+    JSON.stringify(subFormData.selectedShareCodes),
+    JSON.stringify(subFormData.autoTaskConfig)
+  ]);
+
   const handlePreviewUuid = async (uuid: string) => {
     if (!uuid.trim()) {
       setPreviewInfo(null);
@@ -226,6 +349,17 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
       const data = await response.json();
       if (data.success) {
         setPreviewInfo(data.data);
+        const nextDefaultTaskConfig = data.data?.defaultAutoTaskConfig || defaultAutoTaskConfig;
+        setSubFormData(prev => ({
+          ...prev,
+          autoTaskConfig: {
+            ...nextDefaultTaskConfig,
+            ...prev.autoTaskConfig,
+            accountId: prev.autoTaskConfig.accountId || nextDefaultTaskConfig.accountId || '',
+            targetFolderId: prev.autoTaskConfig.targetFolderId || nextDefaultTaskConfig.targetFolderId || '',
+            targetFolder: prev.autoTaskConfig.targetFolder || nextDefaultTaskConfig.targetFolder || ''
+          }
+        }));
       }
     } catch (error) {
       console.error('Preview failed:', error);
@@ -234,8 +368,9 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
 
   const handleOpenAddSub = () => {
     setEditingSub(null);
-    setSubFormData({ uuid: '', name: '', remark: '', enabled: true, selectedShareCodes: [] });
+    setSubFormData(createInitialSubscriptionFormData(defaultAutoTaskConfig));
     setPreviewInfo(null);
+    setAutoTaskPreview(null);
     setIsSubModalOpen(true);
   };
 
@@ -246,9 +381,15 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
       name: sub.name || '',
       remark: sub.remark || '',
       enabled: sub.enabled,
-      selectedShareCodes: normalizeShareCodes(sub.selectedShareCodes || [])
+      selectedShareCodes: normalizeShareCodes(sub.selectedShareCodes || []),
+      autoCreateTasks: Boolean(sub.autoCreateTasks),
+      autoTaskConfig: {
+        ...defaultAutoTaskConfig,
+        ...(sub.autoTaskConfig || {})
+      }
     });
     setPreviewInfo(null);
+    setAutoTaskPreview(null);
     setIsSubModalOpen(true);
     handlePreviewUuid(sub.uuid);
   };
@@ -257,6 +398,27 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
     e.preventDefault();
     if (!editingSub && previewInfo && !previewInfo.canCreate) {
       if (!confirm('预检查建议不创建，确定要继续吗？')) return;
+    }
+    if (subFormData.autoCreateTasks) {
+      if (autoTaskPreviewLoading) {
+        alert('正在预估将要创建的任务数量，请稍后再试');
+        return;
+      }
+      if (!autoTaskPreview?.canAutoCreateTasks) {
+        alert(autoTaskPreview?.recommendation || '当前自动建任务配置不可用，请先修正后再保存');
+        return;
+      }
+      const confirmMessageParts = [
+        `当前订阅预计会自动创建 ${autoTaskPreview.estimatedTaskCount} 个任务`,
+        `覆盖 ${autoTaskPreview.estimatedResourceCount} 个订阅资源`
+      ];
+      if (autoTaskPreview.failedEstimateCount > 0) {
+        confirmMessageParts.push(`其中有 ${autoTaskPreview.failedEstimateCount} 个资源暂时无法完成预估`);
+      }
+      const confirmed = confirm(`${confirmMessageParts.join('，')}，是否继续？`);
+      if (!confirmed) {
+        return;
+      }
     }
     try {
       const url = editingSub ? `/api/subscriptions/${editingSub.id}` : '/api/subscriptions';
@@ -268,6 +430,16 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
       const data = await response.json();
       if (data.success) {
         setIsSubModalOpen(false);
+        const autoTaskSummary: AutoTaskSummary | undefined = data.data?.autoTaskSummary;
+        if (subFormData.autoCreateTasks && autoTaskSummary && (autoTaskSummary.createdTaskCount > 0 || autoTaskSummary.failedResources?.length)) {
+          const summaryText = [
+            autoTaskSummary.createdTaskCount > 0 ? `已创建 ${autoTaskSummary.createdTaskCount} 个任务` : '',
+            autoTaskSummary.failedResources?.length ? `失败 ${autoTaskSummary.failedResources.length} 个资源` : ''
+          ].filter(Boolean).join('，');
+          if (summaryText) {
+            alert(summaryText);
+          }
+        }
         fetchSubscriptions();
       } else {
         alert('保存失败: ' + data.error);
@@ -337,6 +509,16 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
     setIsRemoteSelectorOpen(false);
   };
 
+  const updateAutoTaskConfig = (patch: Partial<AutoTaskConfig>) => {
+    setSubFormData(prev => ({
+      ...prev,
+      autoTaskConfig: {
+        ...prev.autoTaskConfig,
+        ...patch
+      }
+    }));
+  };
+
   const handleDeleteSub = async (id: number) => {
     if (!confirm('确定要删除这个订阅吗？对应资源也会一起删除')) return;
     try {
@@ -376,7 +558,17 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
           fetchResources(id);
         }
         const result = data.data || {};
-        alert(`订阅校验完成，可用 ${result.validResourceCount || 0} 个，异常 ${result.invalidResourceCount || 0} 个`);
+        const autoTaskSummary: AutoTaskSummary | undefined = result.autoTaskSummary;
+        const summaryParts = [
+          `订阅校验完成，可用 ${result.validResourceCount || 0} 个，异常 ${result.invalidResourceCount || 0} 个`
+        ];
+        if (autoTaskSummary?.createdTaskCount) {
+          summaryParts.push(`自动创建 ${autoTaskSummary.createdTaskCount} 个任务`);
+        }
+        if (autoTaskSummary?.failedResources?.length) {
+          summaryParts.push(`自动建任务失败 ${autoTaskSummary.failedResources.length} 个资源`);
+        }
+        alert(summaryParts.join('，'));
       }
     } catch (error) {
       alert('操作失败');
@@ -690,6 +882,7 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
                   selectedShareCodes: []
                 });
                 setPreviewInfo(null);
+                setAutoTaskPreview(null);
               }}
               onBlur={e => handlePreviewUuid(e.target.value)}
               required 
@@ -799,6 +992,167 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
               className="w-full px-5 py-3 bg-slate-50 border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20" 
               rows={2}
             />
+          </div>
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={subFormData.autoCreateTasks}
+                onChange={e => {
+                  const checked = e.target.checked;
+                  setSubFormData(prev => ({
+                    ...prev,
+                    autoCreateTasks: checked,
+                    autoTaskConfig: checked
+                      ? {
+                          ...defaultAutoTaskConfig,
+                          ...prev.autoTaskConfig
+                        }
+                      : prev.autoTaskConfig
+                  }));
+                }}
+                className="w-4 h-4 rounded border-slate-300 text-[#0b57d0] focus:ring-[#0b57d0]/20"
+              />
+              <div>
+                <div className="text-sm font-medium text-slate-800">自动创建任务</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  开启后会按订阅里的资源自动生成任务，后续刷新订阅时也会继续补建未创建的任务。
+                </div>
+              </div>
+            </label>
+
+            {subFormData.autoCreateTasks && (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-[#d7e7ff] bg-[#f8fbff] p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-slate-900">任务预估</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        默认账号和保存目录沿用“自动追剧”设置，任务分组默认单独归到订阅任务。
+                      </div>
+                    </div>
+                    {autoTaskPreviewLoading && (
+                      <span className="text-xs text-[#0b57d0]">预估中...</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="rounded-xl bg-white border border-slate-200 px-3 py-2">
+                      <div className="text-slate-500">默认账号</div>
+                      <div className="mt-1 font-medium text-slate-900">
+                        {subFormData.autoTaskConfig.accountId || '未配置'}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 px-3 py-2">
+                      <div className="text-slate-500">默认保存目录</div>
+                      <div className="mt-1 font-medium text-slate-900 truncate" title={subFormData.autoTaskConfig.targetFolder || ''}>
+                        {subFormData.autoTaskConfig.targetFolder || '未配置'}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 px-3 py-2">
+                      <div className="text-slate-500">订阅资源数</div>
+                      <div className="mt-1 font-medium text-slate-900">
+                        {autoTaskPreview?.estimatedResourceCount ?? previewInfo?.remoteResourceCount ?? 0}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 px-3 py-2">
+                      <div className="text-slate-500">预计任务数</div>
+                      <div className={`mt-1 font-semibold ${(autoTaskPreview?.estimatedTaskCount || 0) > 0 ? 'text-[#b3261e]' : 'text-slate-900'}`}>
+                        {autoTaskPreview?.estimatedTaskCount ?? '-'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`text-xs leading-relaxed rounded-xl px-3 py-2 ${
+                    autoTaskPreview?.canAutoCreateTasks === false
+                      ? 'bg-[#fff4e5] text-[#7d5700]'
+                      : 'bg-white border border-slate-200 text-slate-700'
+                  }`}>
+                    {autoTaskPreview?.recommendation || previewInfo?.autoTaskReadyMessage || '输入 UUID 后会自动预估将要创建的任务数量。'}
+                  </div>
+                  {autoTaskPreview?.warningMessages?.length ? (
+                    <div className="rounded-xl bg-white border border-[#ffd8b0] px-3 py-2 text-xs text-[#8a4500] space-y-1">
+                      {autoTaskPreview.warningMessages.map(message => (
+                        <div key={message}>{message}</div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">任务分组</label>
+                    <input
+                      type="text"
+                      value={subFormData.autoTaskConfig.taskGroup}
+                      onChange={e => updateAutoTaskConfig({ taskGroup: e.target.value })}
+                      className="w-full px-5 py-3 bg-white border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+                      placeholder="例如：订阅任务"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">任务备注</label>
+                    <input
+                      type="text"
+                      value={subFormData.autoTaskConfig.remark}
+                      onChange={e => updateAutoTaskConfig({ remark: e.target.value })}
+                      className="w-full px-5 py-3 bg-white border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+                      placeholder="例如：订阅自动任务"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={subFormData.autoTaskConfig.enableTaskScraper}
+                      onChange={e => updateAutoTaskConfig({ enableTaskScraper: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-[#0b57d0] focus:ring-[#0b57d0]/20"
+                    />
+                    <span className="text-sm font-medium text-slate-700">启用刮削</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={subFormData.autoTaskConfig.enableLazyStrm}
+                      onChange={e => updateAutoTaskConfig({ enableLazyStrm: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-[#0b57d0] focus:ring-[#0b57d0]/20"
+                    />
+                    <span className="text-sm font-medium text-slate-700">懒 STRM</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={subFormData.autoTaskConfig.enableOrganizer}
+                      onChange={e => updateAutoTaskConfig({ enableOrganizer: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-[#0b57d0] focus:ring-[#0b57d0]/20"
+                    />
+                    <span className="text-sm font-medium text-slate-700">自动整理</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={subFormData.autoTaskConfig.enableCron}
+                      onChange={e => updateAutoTaskConfig({ enableCron: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-[#0b57d0] focus:ring-[#0b57d0]/20"
+                    />
+                    <span className="text-sm font-medium text-slate-700">定时任务</span>
+                  </label>
+                </div>
+
+                {subFormData.autoTaskConfig.enableCron && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">Cron 表达式</label>
+                    <input
+                      type="text"
+                      value={subFormData.autoTaskConfig.cronExpression}
+                      onChange={e => updateAutoTaskConfig({ cronExpression: e.target.value })}
+                      className="w-full px-5 py-3 bg-white border border-slate-300 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-[#0b57d0]/20"
+                      placeholder="例如：0 0 * * *"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <label className="flex items-center gap-3 cursor-pointer">
             <input 

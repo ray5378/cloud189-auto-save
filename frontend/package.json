@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=5173 --host=0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && node ./scripts/sync-dist-public.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"

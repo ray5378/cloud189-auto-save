@@ -276,6 +276,12 @@ export class Subscription {
     @Column('text', { nullable: true, default: '' })
     selectedShareCodes!: string;
 
+    @Column('boolean', { default: false })
+    autoCreateTasks!: boolean;
+
+    @Column('text', { nullable: true, default: '' })
+    autoTaskConfig!: string;
+
     @CreateDateColumn({
         transformer: {
             from: (date: Date) => date && new Date(date.getTime() + (8 * 60 * 60 * 1000)),
@@ -346,6 +352,21 @@ export class SubscriptionResource {
 
     @Column('text', { nullable: true, default: '' })
     verifyDetails!: string;
+
+    @Column('datetime', { nullable: true, transformer: {
+        from: (date: Date) => date && new Date(date.getTime() + (8 * 60 * 60 * 1000)),
+        to: (date: Date) => date
+    } })
+    autoTaskCreatedAt!: Date;
+
+    @Column('integer', { nullable: true, default: 0 })
+    autoTaskTaskCount!: number;
+
+    @Column('text', { nullable: true, default: '' })
+    autoTaskTaskIds!: string;
+
+    @Column('text', { nullable: true, default: '' })
+    autoTaskLastError!: string;
 
     @CreateDateColumn({
         transformer: {

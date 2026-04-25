@@ -278,6 +278,88 @@ class TaskService {
         return tasks;
     }
 
+    async estimateTaskCount(params) {
+        const taskDto = new CreateTaskDto({
+            ...params,
+            targetFolderId: params?.targetFolderId || '__preview__'
+        });
+        const accountId = parseInt(taskDto.accountId, 10);
+        const account = await this.accountRepo.findOneBy({ id: accountId });
+        if (!account) {
+            throw new Error('账号不存在');
+        }
+
+        const { url: parseShareLink, accessCode } = cloud189Utils.parseCloudShare(taskDto.shareLink);
+        if (accessCode) {
+            taskDto.accessCode = accessCode;
+        }
+        taskDto.shareLink = parseShareLink;
+
+        const cloud189 = Cloud189Service.getInstance(account);
+        const shareCode = cloud189Utils.parseShareCode(taskDto.shareLink);
+        const shareInfo = await this.getShareInfo(cloud189, shareCode);
+        if (shareInfo.shareMode == 1) {
+            if (!taskDto.accessCode) {
+                throw new Error('分享链接为加密链接, 请提供访问码');
+            }
+            const accessCodeResponse = await cloud189.checkAccessCode(shareCode, taskDto.accessCode);
+            if (!accessCodeResponse?.shareId) {
+                throw new Error('访问码无效');
+            }
+            shareInfo.shareId = accessCodeResponse.shareId;
+        }
+        if (!shareInfo.shareId) {
+            throw new Error('获取分享信息失败');
+        }
+
+        if (!shareInfo.isFolder) {
+            return {
+                taskCount: 1,
+                resourceName: shareInfo.fileName,
+                isFolder: false
+            };
+        }
+
+        const result = await cloud189.listShareDir(shareInfo.shareId, shareInfo.fileId, shareInfo.shareMode, taskDto.accessCode);
+        if (!result?.fileListAO) {
+            return {
+                taskCount: 0,
+                resourceName: shareInfo.fileName,
+                isFolder: true
+            };
+        }
+
+        const mediaSuffixs = ConfigService.getConfigValue('task.mediaSuffix').split(';').map(suffix => suffix.toLowerCase());
+        const enableOnlySaveMedia = ConfigService.getConfigValue('task.enableOnlySaveMedia');
+        const { fileList: rootFiles = [], folderList: subFolders = [] } = result.fileListAO;
+        let taskCount = 0;
+
+        if (rootFiles.length > 0 && this.checkFolderInList(taskDto, '-1')) {
+            const shouldSkipRoot = enableOnlySaveMedia
+                && !rootFiles.some(file => this._checkFileSuffix(file, true, mediaSuffixs));
+            if (!shouldSkipRoot) {
+                taskCount += 1;
+            }
+        }
+
+        for (const folder of subFolders) {
+            if (!this.checkFolderInList(taskDto, folder.id)) {
+                continue;
+            }
+            const subFolderContent = await cloud189.listShareDir(shareInfo.shareId, folder.id, shareInfo.shareMode, taskDto.accessCode);
+            const hasFiles = subFolderContent?.fileListAO?.fileList?.length > 0;
+            if (hasFiles) {
+                taskCount += 1;
+            }
+        }
+
+        return {
+            taskCount,
+            resourceName: shareInfo.fileName,
+            isFolder: true
+        };
+    }
+
     async createTasksBatch(taskList = []) {
         if (!Array.isArray(taskList) || taskList.length === 0) {
             throw new Error('批量任务不能为空');
