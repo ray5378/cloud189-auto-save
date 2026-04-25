@@ -99,6 +99,7 @@ const normalizeShareCodes = (values: string[] = []) => Array.from(new Set(
 const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openSubscriptionMenuId, setOpenSubscriptionMenuId] = useState<number | null>(null);
   
   // Subscription Modal State
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
@@ -166,6 +167,28 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
 
   useEffect(() => {
     fetchSubscriptions();
+  }, []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('[data-subscription-item-menu]')) {
+        setOpenSubscriptionMenuId(null);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenSubscriptionMenuId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const handlePreviewUuid = async (uuid: string) => {
@@ -573,30 +596,47 @@ const SubscriptionTab: React.FC<SubscriptionTabProps> = ({ onTransfer }) => {
                       >
                         <RefreshCw size={18} />
                       </button>
-                      <div className="relative group/menu">
-                        <button className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors">
+                      <div className="relative" data-subscription-item-menu>
+                        <button
+                          type="button"
+                          onClick={() => setOpenSubscriptionMenuId(prev => prev === sub.id ? null : sub.id)}
+                          className="p-2 hover:bg-slate-100 rounded-full text-slate-500 hover:text-slate-900 transition-colors"
+                          aria-label={`打开 ${sub.name} 的操作菜单`}
+                          aria-expanded={openSubscriptionMenuId === sub.id}
+                        >
                           <MoreVertical size={18} />
                         </button>
-                        <div className="absolute right-0 top-full mt-1 w-32 bg-white rounded-xl shadow-lg border border-slate-100 py-1 hidden group-hover/menu:block z-[210]">
-                          <button 
-                            onClick={() => handleEditSub(sub)}
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-2"
-                          >
-                            <Edit2 size={14} /> 编辑
-                          </button>
-                          <button 
-                            onClick={() => handleToggleSub(sub)}
-                            className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-2 ${sub.enabled ? 'text-orange-600' : 'text-green-600'}`}
-                          >
-                            {sub.enabled ? '停用' : '启用'}
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteSub(sub.id)}
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-2 text-red-600"
-                          >
-                            <Trash2 size={14} /> 删除
-                          </button>
-                        </div>
+                        {openSubscriptionMenuId === sub.id && (
+                          <div className="absolute right-0 top-full mt-1 w-32 bg-white rounded-xl shadow-lg border border-slate-100 py-1 z-[210]">
+                            <button 
+                              onClick={() => {
+                                setOpenSubscriptionMenuId(null);
+                                handleEditSub(sub);
+                              }}
+                              className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-2"
+                            >
+                              <Edit2 size={14} /> 编辑
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setOpenSubscriptionMenuId(null);
+                                handleToggleSub(sub);
+                              }}
+                              className={`w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-2 ${sub.enabled ? 'text-orange-600' : 'text-green-600'}`}
+                            >
+                              {sub.enabled ? '停用' : '启用'}
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setOpenSubscriptionMenuId(null);
+                                handleDeleteSub(sub.id);
+                              }}
+                              className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-2 text-red-600"
+                            >
+                              <Trash2 size={14} /> 删除
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
