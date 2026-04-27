@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Download, Upload, Search, RefreshCw, AlertCircle, CheckCircle2, Copy, FolderOpen, Settings } from 'lucide-react';
-import Modal from '../Modal';
+import { Zap, Download, Search, RefreshCw, AlertCircle, CheckCircle2, Settings } from 'lucide-react';
 import FolderSelector, { SelectedFolder } from '../FolderSelector';
 
 interface Account {
@@ -20,9 +19,10 @@ interface CasConfig {
 
 interface CasTabProps {
   onShowToast?: (message: string, type: 'success' | 'error' | 'info') => void;
+  onNavigate?: (tab: string) => void;
 }
 
-const CasTab: React.FC<CasTabProps> = ({ onShowToast }) => {
+const CasTab: React.FC<CasTabProps> = ({ onShowToast, onNavigate }) => {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -42,8 +42,6 @@ const CasTab: React.FC<CasTabProps> = ({ onShowToast }) => {
     enableFamilyTransit: true,
     familyTransitFirst: false
   });
-  const [isConfigLoading, setIsConfigLoading] = useState(false);
-  const [isConfigOpen, setIsConfigOpen] = useState(false);
 
   useEffect(() => {
     fetchAccounts();
@@ -114,33 +112,6 @@ const CasTab: React.FC<CasTabProps> = ({ onShowToast }) => {
     }
   };
 
-  const handleSaveConfig = async () => {
-    setIsConfigLoading(true);
-    try {
-      const res = await fetch('/api/cas/auto-restart-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config)
-      });
-      const data = await res.json();
-      if (data.success) {
-        onShowToast?.('配置已保存', 'success');
-        setIsConfigOpen(false);
-      } else {
-        onShowToast?.('保存配置失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      onShowToast?.('保存配置失败', 'error');
-    } finally {
-      setIsConfigLoading(false);
-    }
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    onShowToast?.('已复制到剪贴板', 'success');
-  };
-
   return (
     <div className="space-y-6">
       {/* 标题栏 */}
@@ -148,9 +119,9 @@ const CasTab: React.FC<CasTabProps> = ({ onShowToast }) => {
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold text-slate-900">CAS 秒传</h2>
           <button
-            onClick={() => setIsConfigOpen(true)}
+            onClick={() => onNavigate?.('media')}
             className="p-2 bg-white border border-slate-300 rounded-full hover:bg-slate-50 transition-all text-slate-600 shadow-sm"
-            title="配置"
+            title="在媒体设置中配置"
           >
             <Settings size={18} />
           </button>
@@ -318,98 +289,6 @@ const CasTab: React.FC<CasTabProps> = ({ onShowToast }) => {
         }}
         title="选择存入目录"
       />
-
-      {/* 配置弹窗 */}
-      <Modal
-        isOpen={isConfigOpen}
-        onClose={() => setIsConfigOpen(false)}
-        title="CAS 配置"
-        footer={
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={() => setIsConfigOpen(false)}
-              className="px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all"
-            >
-              取消
-            </button>
-            <button
-              onClick={handleSaveConfig}
-              disabled={isConfigLoading}
-              className="px-6 py-2.5 bg-[#0b57d0] text-white rounded-xl text-sm font-bold hover:bg-[#0948ad] transition-all disabled:opacity-50"
-            >
-              {isConfigLoading ? '保存中...' : '保存配置'}
-            </button>
-          </div>
-        }
-      >
-        <div className="space-y-6 py-2">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
-              <div>
-                <p className="font-medium text-slate-900">启用家庭中转</p>
-                <p className="text-sm text-slate-500 mt-1">秒传时通过家庭云中转，规避风控</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={config.enableFamilyTransit}
-                  onChange={(e) => setConfig({ ...config, enableFamilyTransit: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0b57d0]"></div>
-              </label>
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
-              <div>
-                <p className="font-medium text-slate-900">优先使用家庭中转</p>
-                <p className="text-sm text-slate-500 mt-1">默认先尝试家庭云秒传，失败再回退个人</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={config.familyTransitFirst}
-                  onChange={(e) => setConfig({ ...config, familyTransitFirst: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0b57d0]"></div>
-              </label>
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
-              <div>
-                <p className="font-medium text-slate-900">恢复后删除 CAS 文件</p>
-                <p className="text-sm text-slate-500 mt-1">秒传恢复成功后自动删除 .cas 存根文件</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={config.deleteCasAfterRestore}
-                  onChange={(e) => setConfig({ ...config, deleteCasAfterRestore: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0b57d0]"></div>
-              </label>
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
-              <div>
-                <p className="font-medium text-slate-900">生成后删除源文件</p>
-                <p className="text-sm text-slate-500 mt-1">生成 .cas 存根后自动删除原始文件</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={config.deleteSourceAfterGenerate}
-                  onChange={(e) => setConfig({ ...config, deleteSourceAfterGenerate: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0b57d0]"></div>
-              </label>
-            </div>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 };

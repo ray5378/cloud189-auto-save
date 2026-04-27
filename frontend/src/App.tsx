@@ -399,7 +399,7 @@ export default function App() {
                 {activeTab === 'subscription' && <SubscriptionTab onTransfer={handleOpenCreateTask} />}
                 {activeTab === 'strmConfig' && <StrmConfigTab />}
                 {activeTab === 'media' && <MediaTab />}
-                {activeTab === 'cas' && <CasTab />}
+                {activeTab === 'cas' && <CasTab onNavigate={setActiveTab} />}
                 {activeTab === 'settings' && <SettingsTab />}
               </motion.div>
             </AnimatePresence>
