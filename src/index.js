@@ -2004,6 +2004,7 @@ AppDataSource.initialize().then(async () => {
         // } catch (error) {
         //     console.error('启动 CAS 监控服务失败:', error.message);
         // }
+    });
     server.on('upgrade', (req, socket, head) => {
         if (!isEmbyProxyRequestPath(req.url, '/emby-proxy')) {
             socket.destroy();
