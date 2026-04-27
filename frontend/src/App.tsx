@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  User, 
-  Files, 
-  ClipboardList, 
-  PlayCircle, 
-  LayoutGrid, 
-  Rss, 
-  Link2, 
-  Settings, 
+import {
+  User,
+  Files,
+  ClipboardList,
+  PlayCircle,
+  LayoutGrid,
+  Rss,
+  Link2,
+  Settings,
   Monitor,
   Search,
   Bell,
@@ -15,7 +15,8 @@ import {
   LogOut,
   MessageSquare,
   Moon,
-  Sun
+  Sun,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -36,9 +37,10 @@ import SubscriptionTab from './components/tabs/SubscriptionTab';
 import StrmConfigTab from './components/tabs/StrmConfigTab';
 import MediaTab from './components/tabs/MediaTab';
 import SettingsTab from './components/tabs/SettingsTab';
+import CasTab from './components/tabs/CasTab';
 
 // --- Types ---
-type TabType = 'account' | 'fileManager' | 'task' | 'autoSeries' | 'organizer' | 'subscription' | 'strmConfig' | 'media' | 'settings';
+type TabType = 'account' | 'fileManager' | 'task' | 'autoSeries' | 'organizer' | 'subscription' | 'strmConfig' | 'media' | 'cas' | 'settings';
 type ThemeMode = 'light' | 'dark' | 'system';
 
 const appVersionLabel = `v${__APP_VERSION__}`;
@@ -167,6 +169,7 @@ export default function App() {
     { id: 'subscription', label: '订阅', icon: Rss },
     { id: 'strmConfig', label: 'STRM', icon: Link2 },
     { id: 'media', label: '媒体', icon: Monitor },
+    { id: 'cas', label: '秒传', icon: Zap },
     { id: 'settings', label: '系统', icon: Settings },
   ];
 
@@ -396,6 +399,7 @@ export default function App() {
                 {activeTab === 'subscription' && <SubscriptionTab onTransfer={handleOpenCreateTask} />}
                 {activeTab === 'strmConfig' && <StrmConfigTab />}
                 {activeTab === 'media' && <MediaTab />}
+                {activeTab === 'cas' && <CasTab />}
                 {activeTab === 'settings' && <SettingsTab />}
               </motion.div>
             </AnimatePresence>
