@@ -1997,14 +1997,13 @@ AppDataSource.initialize().then(async () => {
         } catch (error) {
             console.error('启动 Emby 独立反代端口失败:', error.message);
         }
-        // 启动 CAS 监控服务
-        try {
-            const { casMonitorService } = require('./services/casMonitorService');
-            casMonitorService.start();
-        } catch (error) {
-            console.error('启动 CAS 监控服务失败:', error.message);
-        }
-    });
+        // CAS 监控服务默认禁用，通过前端配置开启
+        // try {
+        //     const { casMonitorService } = require('./services/casMonitorService');
+        //     casMonitorService.start();
+        // } catch (error) {
+        //     console.error('启动 CAS 监控服务失败:', error.message);
+        // }
     server.on('upgrade', (req, socket, head) => {
         if (!isEmbyProxyRequestPath(req.url, '/emby-proxy')) {
             socket.destroy();
