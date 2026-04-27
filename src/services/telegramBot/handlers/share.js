@@ -1,7 +1,9 @@
 /**
  * 分享链接处理 handler
  * 修复 bug: 搜索模式下分享链接优先于关键字处理
+ * 支持静默模式：开启后直接使用默认目录，不再询问
  */
+const ConfigService = require('../../ConfigService');
 const { send, typing } = require('../messaging');
 const { escapeHtml, bold } = require('../escape');
 const { friendlyError } = require('../errors');
@@ -14,7 +16,7 @@ async function handleShareLink(svc, msg) {
     const chatId = msg.chat.id;
     const session = svc.sessionStore.get(chatId);
 
-    // 修复 bug #3: 搜索模式下也应处理分享链接（而不是跳过）
+    // 修复 bug #3: 搜索模式下分享链接优先于关键字处理
     // 退出搜索模式再处理
     if (session.search.active) {
         session.search.active = false;
@@ -76,6 +78,26 @@ async function processShareLink(svc, chatId, shareLink, accessCode) {
         return;
     }
 
+    // ─── 静默模式：直接使用默认目录 ───
+    const silentMode = ConfigService.getConfigValue('telegram.bot.silentMode', false);
+    if (silentMode) {
+        // 查找默认目录，优先使用标记为默认的，否则使用第一个
+        const defaultFolder = folders.find(f => f.isDefault) || folders[0];
+        const username = desensitizeUsername(session.account.entity?.username);
+        await send(svc.bot, chatId,
+            `🔇 静默模式已开启\n` +
+            `当前账号: ${escapeHtml(username)}\n` +
+            `资源名称: ${bold(taskName)}\n` +
+            `保存目录: ${escapeHtml(defaultFolder.path)}\n` +
+            `正在创建任务...`
+        );
+
+        // 直接创建任务
+        await createTaskDirectly(svc, chatId, defaultFolder.id, taskName);
+        return;
+    }
+
+    // ─── 正常模式：询问选择目录 ───
     const keyboard = folders.map(folder => [{
         text: truncateBtn(folder.path.length > 30
             ? '.../' + folder.path.split('/').slice(-2).join('/')
@@ -93,6 +115,28 @@ async function processShareLink(svc, chatId, shareLink, accessCode) {
 
     const msg = await send(svc.bot, chatId, message, { keyboard });
     session.ui.lastButtonMsgId = msg?.message_id || null;
+}
+
+// ─── 静默模式直接创建任务 ───
+async function createTaskDirectly(svc, chatId, folderId, taskName) {
+    const session = svc.sessionStore.get(chatId);
+    const { link: shareLink, accessCode } = session.pendingShare;
+
+    try {
+        const task = await svc.taskService.createTask({
+            accountId: session.account.id,
+            shareLink,
+            accessCode: accessCode || undefined,
+            targetFolderId: folderId,
+        });
+
+        await send(svc.bot, chatId, `✅ 任务已创建: ${bold(taskName)}\n任务ID: ${task.id}`);
+
+        // 清理会话
+        session.pendingShare = { link: null, accessCode: null };
+    } catch (e) {
+        await send(svc.bot, chatId, `❌ 创建任务失败: ${escapeHtml(e.message)}`);
+    }
 }
 
 module.exports = {

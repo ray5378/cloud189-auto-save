@@ -18,6 +18,7 @@ const CB = {
     STATS_REFRESH: 'sr',       // 刷新统计
     HELP_NAV: 'hn',            // help 快捷导航
     SUBS_PAGE: 'sp',           // 订阅分页
+    SILENT_MODE: 'sm',         // 静默模式
 };
 
 // 任务状态枚举

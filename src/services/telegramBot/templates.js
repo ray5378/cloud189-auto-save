@@ -126,6 +126,7 @@ function helpText() {
         `/fl - 显示常用目录列表\n` +
         `/fs - 添加常用目录\n` +
         `/stats - 系统统计信息\n` +
+        `/silent - 静默模式设置\n` +
         `/cancel - 取消当前操作\n\n` +
         `🔍 ${bold('搜索与追剧')}\n` +
         `/search_cs - 搜索CloudSaver资源\n` +

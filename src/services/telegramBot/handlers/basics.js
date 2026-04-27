@@ -1,6 +1,7 @@
 /**
- * 基础命令 handler: /help /accounts /cancel + 账号切换回调
+ * 基础命令 handler: /help /accounts /cancel /silent + 账号切换回调
  */
+const ConfigService = require('../../ConfigService');
 const { send, edit, deleteMsg } = require('../messaging');
 const { helpText, desensitizeUsername } = require('../templates');
 const { helpNavKeyboard, serializeCb } = require('../keyboards');
@@ -135,6 +136,31 @@ async function handleHelpNav(svc, chatId, view, messageId) {
     }
 }
 
+// ─── 静默模式 ───
+async function handleSilentMode(svc, msg) {
+    const chatId = msg.chat.id;
+    const current = ConfigService.getConfigValue('telegram.bot.silentMode', false);
+
+    const keyboard = [
+        [{ text: current ? '✅ 已开启' : '开启静默模式', callback_data: serializeCb({ t: CB.SILENT_MODE, a: 'on' }) }],
+        [{ text: current ? '关闭静默模式' : '✅ 已关闭', callback_data: serializeCb({ t: CB.SILENT_MODE, a: 'off' }) }],
+    ];
+
+    const message = `🔇 静默模式当前: ${current ? '开启' : '关闭'}\n\n` +
+        `开启后，Bot 处理分享链接时将直接使用默认目录创建任务，不再每次询问保存目录。`;
+
+    await send(svc.bot, chatId, message, { keyboard });
+}
+
+async function handleSilentModeCallback(svc, chatId, data, messageId) {
+    const action = data.a;
+    const newValue = action === 'on';
+
+    ConfigService.setConfigValue('telegram.bot.silentMode', newValue);
+
+    await edit(svc.bot, chatId, messageId, `🔇 静默模式已${newValue ? '开启' : '关闭'}`);
+}
+
 module.exports = {
     handleHelp,
     handleStart,
@@ -143,4 +169,6 @@ module.exports = {
     handleSetAccount,
     handleCancel,
     handleHelpNav,
+    handleSilentMode,
+    handleSilentModeCallback,
 };

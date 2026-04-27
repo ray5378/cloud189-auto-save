@@ -220,6 +220,11 @@ function registerCommands(svc) {
         await getHandlers().subs.handleSubs(svc, msg);
     });
 
+    bot.onText(/^\/silent$/, async (msg) => {
+        if (!svc.checkChatId(msg.chat.id)) return;
+        await getHandlers().basics.handleSilentMode(svc, msg);
+    });
+
     // ═══════════ 分享链接（非命令文本） ═══════════
 
     bot.onText(/cloud\.189\.cn/, async (msg) => {
@@ -318,6 +323,9 @@ function registerCommands(svc) {
                         break;
                     case CB.SUBS_PAGE:
                         await getHandlers().subs.handleSubsPage(svc, chatId, data.p, messageId);
+                        break;
+                    case CB.SILENT_MODE:
+                        await getHandlers().basics.handleSilentModeCallback(svc, chatId, data, messageId);
                         break;
                     default:
                         break;
