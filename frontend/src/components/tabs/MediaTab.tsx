@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Monitor, 
-  Cpu, 
-  Link2, 
-  Tv, 
-  Globe, 
-  Search, 
-  Save, 
-  RefreshCw, 
-  Plus, 
-  Trash2, 
+import {
+  Monitor,
+  Cpu,
+  Link2,
+  Tv,
+  Globe,
+  Search,
+  Save,
+  RefreshCw,
+  Plus,
+  Trash2,
   Edit3,
   Settings,
-  AlertCircle
+  AlertCircle,
+  Zap
 } from 'lucide-react';
 import Modal from '../Modal';
 
@@ -69,6 +70,12 @@ interface MediaSettings {
       documentary: string;
     }
   };
+  cas: {
+    enableFamilyTransit: boolean;
+    familyTransitFirst: boolean;
+    deleteCasAfterRestore: boolean;
+    deleteSourceAfterGenerate: boolean;
+  };
 }
 
 interface RegexPreset {
@@ -109,6 +116,12 @@ const initialSettings: MediaSettings = {
       variety: '综艺',
       documentary: '纪录片'
     }
+  },
+  cas: {
+    enableFamilyTransit: true,
+    familyTransitFirst: false,
+    deleteCasAfterRestore: true,
+    deleteSourceAfterGenerate: false
   }
 };
 
@@ -139,7 +152,7 @@ const MediaTab: React.FC = () => {
     try {
       const settingsRes = await fetch('/api/settings');
       const settingsData = await settingsRes.json();
-      
+
       if (settingsData.success) {
         // Merge with initial settings to ensure all nested objects exist
         const fetched = settingsData.data;
@@ -164,7 +177,27 @@ const MediaTab: React.FC = () => {
             ...fetched.organizer,
             categories: { ...initialSettings.organizer.categories, ...fetched.organizer?.categories }
           },
+          cas: { ...initialSettings.cas, ...fetched.cas },
         });
+      }
+
+      // 获取 CAS 配置
+      try {
+        const casRes = await fetch('/api/cas/auto-restart-config');
+        const casData = await casRes.json();
+        if (casData.success) {
+          setSettings(prev => ({
+            ...prev,
+            cas: {
+              enableFamilyTransit: casData.data.enableFamilyTransit ?? true,
+              familyTransitFirst: casData.data.familyTransitFirst ?? false,
+              deleteCasAfterRestore: casData.data.deleteCasAfterRestore ?? true,
+              deleteSourceAfterGenerate: casData.data.deleteSourceAfterGenerate ?? false,
+            }
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to fetch CAS config:', error);
       }
 
       try {
@@ -186,12 +219,25 @@ const MediaTab: React.FC = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // 保存媒体设置
       const response = await fetch('/api/settings/media', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
       });
       const data = await response.json();
+
+      // 保存 CAS 配置
+      try {
+        await fetch('/api/cas/auto-restart-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings.cas)
+        });
+      } catch (e) {
+        console.error('Failed to save CAS config:', e);
+      }
+
       if (data.success) {
         alert('媒体设置已成功保存');
       } else {
@@ -402,6 +448,79 @@ const MediaTab: React.FC = () => {
                 <p className="text-[10px] text-slate-400">由服务端换取直链，避免临时直链过期</p>
               </div>
             </label>
+          </div>
+        </div>
+      </section>
+
+      {/* CAS 秒传设置 */}
+      <section className="space-y-4">
+        <h3 className="text-xl font-medium text-slate-900 flex items-center gap-3">
+          <Zap size={24} className="text-[#0b57d0]" /> 秒传设置
+        </h3>
+        <div className="bg-white rounded-3xl border border-slate-200/60 p-8 space-y-6 shadow-sm">
+          <div className="flex flex-col gap-4">
+            <label className="flex items-center gap-3 cursor-pointer group p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+              <div
+                onClick={() => updateSetting('cas.enableFamilyTransit', !settings.cas.enableFamilyTransit)}
+                className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
+                  settings.cas.enableFamilyTransit ? 'bg-[#0b57d0] border-[#0b57d0]' : 'border-slate-300 bg-white'
+                }`}
+              >
+                {settings.cas.enableFamilyTransit && <div className="w-2.5 h-2.5 bg-white rounded-sm" />}
+              </div>
+              <div>
+                <span className="text-sm font-medium text-slate-900">启用家庭中转</span>
+                <p className="text-[10px] text-slate-400">秒传时通过家庭云中转，规避个人云风控</p>
+              </div>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer group p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+              <div
+                onClick={() => updateSetting('cas.familyTransitFirst', !settings.cas.familyTransitFirst)}
+                className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
+                  settings.cas.familyTransitFirst ? 'bg-[#0b57d0] border-[#0b57d0]' : 'border-slate-300 bg-white'
+                }`}
+              >
+                {settings.cas.familyTransitFirst && <div className="w-2.5 h-2.5 bg-white rounded-sm" />}
+              </div>
+              <div>
+                <span className="text-sm font-medium text-slate-900">优先使用家庭中转</span>
+                <p className="text-[10px] text-slate-400">默认先尝试家庭云秒传，失败再回退个人云</p>
+              </div>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer group p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+              <div
+                onClick={() => updateSetting('cas.deleteCasAfterRestore', !settings.cas.deleteCasAfterRestore)}
+                className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
+                  settings.cas.deleteCasAfterRestore ? 'bg-[#0b57d0] border-[#0b57d0]' : 'border-slate-300 bg-white'
+                }`}
+              >
+                {settings.cas.deleteCasAfterRestore && <div className="w-2.5 h-2.5 bg-white rounded-sm" />}
+              </div>
+              <div>
+                <span className="text-sm font-medium text-slate-900">恢复后删除 CAS 文件</span>
+                <p className="text-[10px] text-slate-400">秒传恢复成功后自动删除 .cas 存根文件</p>
+              </div>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer group p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+              <div
+                onClick={() => updateSetting('cas.deleteSourceAfterGenerate', !settings.cas.deleteSourceAfterGenerate)}
+                className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
+                  settings.cas.deleteSourceAfterGenerate ? 'bg-[#0b57d0] border-[#0b57d0]' : 'border-slate-300 bg-white'
+                }`}
+              >
+                {settings.cas.deleteSourceAfterGenerate && <div className="w-2.5 h-2.5 bg-white rounded-sm" />}
+              </div>
+              <div>
+                <span className="text-sm font-medium text-slate-900">生成后删除源文件</span>
+                <p className="text-[10px] text-slate-400">生成 .cas 存根后自动删除原始文件</p>
+              </div>
+            </label>
+          </div>
+          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex gap-3">
+            <AlertCircle size={20} className="text-blue-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-800 leading-relaxed">
+              家庭中转适用于个人云被风控或黑名单的情况。秒传恢复和懒STRM都会使用这些设置。
+            </p>
           </div>
         </div>
       </section>
