@@ -519,7 +519,7 @@ const MediaTab: React.FC = () => {
           <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex gap-3">
             <AlertCircle size={20} className="text-blue-600 shrink-0 mt-0.5" />
             <p className="text-xs text-blue-800 leading-relaxed">
-              家庭中转适用于个人云被风控或黑名单的情况。秒传恢复和懒懒STRM都会使用这些设置。
+              家庭中转适用于个人云被风控或黑名单的情况。秒传恢复和懒STRM都会使用这些设置。
             </p>
           </div>
         </div>
